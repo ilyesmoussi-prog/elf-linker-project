@@ -1,1 +1,6 @@
 Custom ELF Loader intended for pedagogic use
+pour executer sur une bonne base 
+il faut compiler avec la commande
+autoreconf -vif
+./configure
+make

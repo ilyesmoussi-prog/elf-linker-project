@@ -1,0 +1,20 @@
+#!/bin/sh
+
+FILE="$1"
+
+if [ -z "$FILE" ]; then
+    echo "Usage: $0 <fichier-elf>"
+    exit 1
+fi
+
+MINE="/tmp/mine_header.txt"
+READELF="/tmp/readelf_header.txt"
+
+# Ton programme : on garde les 19 dernières lignes
+./Options_and_debug_example -t "$FILE" | tail -n 19 > "$MINE"
+
+# readelf officiel : idem
+arm-none-eabi-readelf -h "$FILE" | tail -n 19 > "$READELF"
+
+echo "===== DIFF (readelf vs programme) ====="
+diff -u "$READELF" "$MINE"

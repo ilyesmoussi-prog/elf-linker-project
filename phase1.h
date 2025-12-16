@@ -1,6 +1,6 @@
 //Bibliothèque pour lecture de données ELF
-#ifndef _STRUCTURE_H_
-#define _STRUCTURE_H_
+#ifndef _PHASE1_H_
+#define _PHASE1_H_
 
 #include <elf.h>
 #include <stdio.h>
@@ -33,25 +33,17 @@ struct Symbol_list{
 // *************************************************************************************************************
 // *********************** Fonctions de gestion de l'endianess du fichier ELF ***********************************
 // Retourne 1 si l'endianess du header est en big endian, 0 dans le cas contraire
-int is_big_endian(Elf32_Ehdr h);
+int is_big_endian_fich(Elf32_Ehdr h);
 
 
-
-// Lis un header de section 
-int read_Elf32_Shdr( FILE *f, Elf32_Ehdr h, unsigned int index, Elf32_Shdr * s);
-// Lis une structure Elf32_Sym
-int read_Elf32_Sym( FILE *f, Elf32_Ehdr h, Elf32_Sym *s );
 
 
 //****************************************************************************************************************** 
 //*******************************************AFFICHAGE entete*******************************************************
-int read_Elf32_Ehdr( FILE *f, Elf32_Ehdr * h );
-void afficher_Elf32_Ehdr( Elf32_Ehdr h );
-void afficher_type(Elf32_Ehdr h);
-void afficher_machine(Elf32_Ehdr h);
-void afficher_version(Elf32_Ehdr h);
-void afficher_indent(Elf32_Ehdr h);
-void afficher_en_tete_format_commande(Elf32_Ehdr h);
+int read_Elf32_Ehdr(FILE *f, Elf32_Ehdr *h);
+const char *machine_to_string(Elf32_Ehdr h);
+const char *type_to_string(Elf32_Ehdr h);
+int afficher_read_Elf32_Ehdr(Elf32_Ehdr h);
 
 //******************************************************************************************************************
 //********************************************Manipulation des sections ****************************************** */
@@ -66,4 +58,4 @@ void afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste * L);
 /*************************************************** */
 
 
-#endif _STRUCTURE_H_
+#endif /*_PHASE1_H_*/

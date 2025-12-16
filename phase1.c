@@ -1,29 +1,10 @@
-#include "Structure.h"
+#include "phase1.h"
+#include "util.h"
 
 
 
-
-int is_big_endian(Elf32_Ehdr h) {
+int is_big_endian_fich(Elf32_Ehdr h) {
     return (h.e_ident[ENDIANESS_INDEX] == ELFDATA2MSB);
-}
-
-
-int32_t recuperer_valeur32(Elf32_Ehdr h, int32_t value) {
-    if (is_big_endian(h)) {
-		printf("BSWAP 32\n");
-        return (int32_t)bswap_32((uint32_t)value);
-    }
-    return value;
-}
-
-
-int16_t recuperer_valeur16(Elf32_Ehdr h, int32_t value) {
-    uint16_t v16 = (uint16_t)value;
-    if (is_big_endian(h)) {
-		printf("BSWAP 16\n");
-        v16 = bswap_16(v16);
-    }
-    return (int16_t)v16;
 }
 
 
@@ -50,193 +31,142 @@ int read_Elf32_Ehdr(FILE *f, Elf32_Ehdr *h)
         return -1;
     }
 
-
-    int is_bigend = is_big_endian(*h);
+    int is_bigend = is_big_endian_fich(*h);
 
     // Si le fichier est en big-endian, il faut inverser les octets des champs
     if (is_bigend) {
-		h->e_type = recuperer_valeur16(*h, h->e_type);
-		h->e_machine = recuperer_valeur16(*h, h->e_machine);
-		h->e_version = recuperer_valeur32(*h, h->e_version);
-		h->e_entry = recuperer_valeur32(*h, h->e_entry);
-		h->e_phoff = recuperer_valeur32(*h, h->e_phoff);
-		h->e_shoff = recuperer_valeur32(*h, h->e_shoff);//debut des en tete de section 
-		h->e_flags = recuperer_valeur32(*h, h->e_flags);
-		h->e_ehsize = recuperer_valeur16(*h, h->e_ehsize);
-		h->e_phentsize = recuperer_valeur16(*h, h->e_phentsize);
-		h->e_phnum = recuperer_valeur16(*h, h->e_phnum);
-		h->e_shentsize = recuperer_valeur16(*h, h->e_shentsize); //taille d'une entree en tete de section
-		h->e_shnum = recuperer_valeur16(*h, h->e_shnum); //nb entree en tete de section
-		h->e_shstrndx = recuperer_valeur16(*h, h->e_shstrndx); //nom des sections 
+		h->e_type      = reverse_2(h->e_type);
+		h->e_machine   = reverse_2(h->e_machine);
+		h->e_version   = reverse_4(h->e_version);
+		h->e_entry     = reverse_4(h->e_entry);
+		h->e_phoff     = reverse_4(h->e_phoff);
+		h->e_shoff     = reverse_4(h->e_shoff);
+		h->e_flags     = reverse_4(h->e_flags);
+		h->e_ehsize    = reverse_2(h->e_ehsize);
+		h->e_phentsize = reverse_2(h->e_phentsize);
+		h->e_phnum     = reverse_2(h->e_phnum);
+		h->e_shentsize = reverse_2(h->e_shentsize);
+		h->e_shnum     = reverse_2(h->e_shnum);
+		h->e_shstrndx  = reverse_2(h->e_shstrndx);
     }
 
     return 0;
 }
 
-void afficher_Elf32_Ehdr( Elf32_Ehdr h )
+
+
+const char *machine_to_string(Elf32_Ehdr h)
 {
-    printf(
-        "HEADER  : \n"
-        "\te_type : %d\n"
-        "\te_machine : %d\n"
-        "\te_version : %d\n"
-        "\te_entry : 0x%x\n"
-        "\te_phoff : 0x%x\n"
-        "\te_shoff : 0x%x\n"
-        "\te_flags : %d\n"
-        "\te_ehsize : %d\n"
-        "\te_phentsize : %d\n"
-        "\te_phnum : %d\n"
-        "\te_shentsize : %d\n"
-        "\te_shnum : %d\n"
-        "\te_shstrndx : %d\n\n",
-        h.e_type, h.e_machine, h.e_version, h.e_entry, h.e_phoff,
-        h.e_shoff, h.e_flags, h.e_ehsize, h.e_phentsize, h.e_phnum,
-        h.e_shentsize, h.e_shnum, h.e_shstrndx
-    );	
+    switch (h.e_machine) {
+        case EM_NONE:        return "No machine";
+        case EM_M32:         return "AT&T WE 32100";
+        case EM_SPARC:       return "Sun Microsystems SPARC";
+        case EM_386:         return "Intel 80386";
+        case EM_68K:         return "Motorola 68000";
+        case EM_88K:         return "Motorola 88000";
+        case EM_860:         return "Intel 80860";
+        case EM_MIPS:        return "MIPS RS3000";
+        case EM_PARISC:      return "HP/PA";
+        case EM_SPARC32PLUS: return "SPARC (jeu d'instruction étendu)";
+        case EM_PPC:         return "PowerPC";
+        case EM_PPC64:       return "PowerPC 64 bits";
+        case EM_S390:        return "IBM S/390";
+        case EM_ARM:         return "ARM";
+        case EM_SH:          return "Renesas SuperH";
+        case EM_SPARCV9:     return "SPARC v9 64 bits";
+        case EM_IA_64:       return "Intel Itanium";
+        case EM_X86_64:      return "AMD x86-64 architecture";
+        case EM_AARCH64:     return "AArch64";
+        case EM_VAX:         return "DEC VAX";
+        default:             return "Unknown";
+    }
 }
-void afficher_indent(Elf32_Ehdr h){
-	int i;
-	printf(" Magique:    ");
-	for(i=0;i<16;i++){
-		if(h.e_ident[i]/16 == 0){
-			printf(" 0%x", h.e_ident[i]);
-		}else{
-			printf(" %02x",h.e_ident[i]);
-		}
+
+
+const char *type_to_string(Elf32_Ehdr header)
+{
+    switch (header.e_type) {
+        case ET_NONE: return "NONE (No file type)";
+        case ET_REL:  return "REL (Relocatable file)";
+        case ET_EXEC: return "EXEC (Executable file)";
+        case ET_DYN:  return "DYN (Shared object file)";
+        case ET_CORE: return "CORE (Core file)";
+        default:      return "Unknown";
+    }
+}
+
+
+
+
+int afficher_read_Elf32_Ehdr(Elf32_Ehdr header) {
+	
+	printf("=== EN-TÊTE ELF ===\n");
+	// Affichage des 16 octets magiques
+	printf("  Magic:   ");
+	for (int i = 0; i < EI_NIDENT; i++) {        
+		printf("%02x ", header.e_ident[i]);
 	}
 	printf("\n");
-}
-void afficher_version(Elf32_Ehdr h){
-	switch(h.e_version){
-		case 0 :
-			printf(" Version:\t\t\t\t%d (Invalid Version)\n",h.e_version);
-			break;
-		case 1 :
-			printf(" Version:\t\t\t\t%d (Current Version)\n",h.e_version);
-			break;
-	}
-}
-void afficher_type(Elf32_Ehdr h){
-	switch(h.e_type){
-		case ET_NONE :
-			printf(" Type:\t\t\t\t\tNo file type\n");
-			break;
-		case ET_REL :
-			printf(" Type:\t\t\t\t\tRelocatable file\n");
-			break;
-		case 2 :
-			printf(" Type:\t\t\t\t\tExecutable file\n");
-			break;
-		case 3 :
-			printf(" Type:\t\t\t\t\tShared object file\n");
-			break;
-		case 4 :
-			printf(" Type:\t\t\t\t\tCore file\n");
-			break;
-		default :
-			printf(" ERROR ON THE TYPE OF THE FILE ;)\n");
-			break;
-	}
-}
+	
+	// Affichage de la classe ELF (32 ou 64 bits)
+	printf("  Class:                             %s\n", header.e_ident[EI_CLASS] == ELFCLASS32 ? "ELF32" : "ELF64");  // Classe ELF 1=32 et 2=64
 
-void afficher_machine(Elf32_Ehdr h){
-	switch(h.e_machine){
-		case EM_NONE :
-			printf(" Machine:\t\t\t\tmachine inconne");
-			break;
-		case EM_M32 :
-			printf(" Machine:\t\t\t\tAT&T WE 32100");
-			break;
-		case EM_SPARC :
-			printf(" Machine:\t\t\t\tSun Microsystems SPARC");
-			break;
-		case EM_386 :
-			printf(" Machine:\t\t\t\tIntel 80386");
-			break;
-		case EM_68K :
-			printf(" Machine:\t\t\t\tMotorola 68000");
-			break;
-		case EM_88K :
-			printf(" Machine:\t\t\t\tMotorola 88000");
-			break;
-		case EM_860 :
-			printf(" Machine:\t\t\t\tIntel 80860");
-			break;
-		case EM_MIPS :
-			printf(" Machine:\t\t\t\tMIPS RS3000");
-			break;
-		case EM_PARISC :
-			printf(" Machine:\t\t\t\tHP/PA");
-			break;
-		case EM_SPARC32PLUS :
-			printf(" Machine:\t\t\t\tSPARC avec jeu d'instruction étendu");
-			break;
-		case EM_PPC :
-			printf(" Machine:\t\t\t\tPowerPC");
-			break;
-		case EM_PPC64 :
-			printf(" Machine:\t\t\t\tPowerPC 64 bits");
-			break;
-		case EM_S390 :
-			printf(" Machine:\t\t\t\tIBM S/390");
-			break;
-		case EM_ARM :
-			printf(" Machine:\t\t\t\tARM ");
-			break;
-		case EM_SH :
-			printf(" Machine:\t\t\t\tRenesas SuperH");
-			break;
-		case EM_SPARCV9 :
-			printf(" Machine:\t\t\t\tSPARCC v9 64 bits");
-			break;
-		case EM_IA_64 :
-			printf(" Machine:\t\t\t\tIntel Itanium");
-			break;
-		case EM_X86_64 :
-			printf(" Machine:\t\t\t\tAMD x86-64");
-			break;
-		case EM_VAX :
-			printf(" Machine:\t\t\t\tDEC Vax");
-			break;
-		default :
-			printf(" ERROR ON THE FILE'S 'MACHINE'");
-			break;
-	}
-	printf("\n");
-}
+	// Affichage de l'endianness (little ou big endian)
+	printf("  Data:                              %s\n", header.e_ident[EI_DATA] == ELFDATA2MSB ?  "2's complement, big endian" :"2's complement, little endian"); // 1=little endian sinon big endian
 
-void afficher_en_tete_format_commande(Elf32_Ehdr h){
-	printf("En_tête ELF:\n");
-	afficher_indent(h);
-	printf(" Classe:\t\t\t\tELF32\n");	
-	if(is_big_endian(h)){
-		printf(" Donnees:\t\t\t\t2's complement, big endian\n");
-	}
-	else{
-		printf(" Donnees:\t\t\t\tlittle endian\n");
-	}
+	// Affichage de la version ELF
+	printf("  Version:                           %d (current)\n", header.e_ident[EI_VERSION]); // Version ELF (1=original)
 
-	afficher_type(h);
-	afficher_machine(h);
-	afficher_version(h);
+	// Affichage du OS/ABI
+	const char *osabi_str;
+	switch (header.e_ident[EI_OSABI]) {
+		case ELFOSABI_SYSV:        osabi_str = "UNIX - System V"; break;
+		case ELFOSABI_LINUX:       osabi_str = "UNIX - Linux"; break;
+		default:                   osabi_str = "Unknown"; break;
+	}
+	printf("  OS/ABI:                            %s\n", osabi_str); // OS/ABI
+	printf("  ABI Version:                       %d\n", header.e_ident[EI_ABIVERSION]); // Version ABI
 
-	printf(" Addresse du point d'entrée:\t\t0x%x\n",h.e_entry);
-	printf(" Début des en_têtes du programme:\t%d\n", h.e_phoff);
-	printf(" Shoff:\t\t\t\t\t%d\n",h.e_shoff);
-	printf(" Flags:\t\t\t\t\t0x%x\n",h.e_flags);
-	printf(" Taille de l'en-tête (en octets):\t%d\n", h.e_ehsize);
-	printf(" Taille d'une entrée de la table d'en tête (en octets):\t%d\n", h.e_phentsize);
-	printf(" Nombre d'entrée de la table d'en tête:\t%d\n", h.e_phnum);
-	printf(" Taille de section headers:\t\t%d (bytes)\n",h.e_shentsize);
-	printf(" Nombre de section headers:\t\t%d\n",h.e_shnum);
-	printf(" L'index de la table des section headers:\t%d\n",h.e_shstrndx);
+	// Affichage du type de fichier
+	
+	printf("  Type:                              %s\n", type_to_string(header));
+
+	// Affichage de l'architecture machine
+	printf("  Machine:                           %s\n", machine_to_string(header));
+	
+	// Affichage de la version ELF
+	printf("  Version:                           0x%x\n", header.e_version);
+
+	// Affichage de l'adresse d'entrée et des offsets des tables
+	printf("  Entry point address:               0x%x\n", header.e_entry);
+	printf("  Start of program headers:          %d (bytes into file)\n", header.e_phoff);
+	printf("  Start of section headers:          %d (bytes into file)\n", header.e_shoff);
+	
+	//Affichage des flags et tailles divers (section/program headers/etc)
+	if (header.e_machine == EM_ARM) {
+		int eabi = (header.e_flags >> 24) & 0xFF;
+		if (eabi != 0) {
+			printf("  Flags:                             0x%x, Version%u EABI\n", header.e_flags, eabi);
+		} else	
+		printf("  Flags:                             0x%x (ARM)\n", header.e_flags);
+	} else {
+	printf("  Flags:                             0x%x\n", header.e_flags);
+	}
+	printf("  Size of this header:               %d (bytes)\n", header.e_ehsize);
+	printf("  Size of program headers:           %d (bytes)\n", header.e_phentsize);
+	printf("  Number of program headers:         %d\n", header.e_phnum);	
+	printf("  Size of section headers:           %d (bytes)\n", header.e_shentsize);
+	printf("  Number of section headers:         %d\n", header.e_shnum);
+	printf("  Section header string table index: %d\n", header.e_shstrndx);
+
+	return 0;
 
 }
+
 //################################################################################################################################
 //################################################################################################################################
 //lire le header de section 
-int read_Elf32_Shdr(FILE *f, Elf32_Ehdr h, unsigned int index, Elf32_Shdr *s)
+/*int read_Elf32_Shdr(FILE *f, Elf32_Ehdr h, unsigned int index, Elf32_Shdr *s)
 {
     Elf32_Off offset = h.e_shoff + index * h.e_shentsize;
 
@@ -250,7 +180,7 @@ int read_Elf32_Shdr(FILE *f, Elf32_Ehdr h, unsigned int index, Elf32_Shdr *s)
         return -1;
     }
 
-    if (is_big_endian(h)) {
+    if (_fich(h)) {
         s->sh_name      = recuperer_valeur32(h, s->sh_name);
         s->sh_type      = recuperer_valeur32(h, s->sh_type);
         s->sh_flags     = recuperer_valeur32(h, s->sh_flags);
@@ -430,7 +360,7 @@ void afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste *L){
     }
 
 }
-/*
+
 static Shdr_liste* section_index(Shdr_liste *L, int idx) {
     int i = 0;
     for (Shdr_liste *p = L; p != NULL; p = p->next, i++) {
@@ -457,7 +387,7 @@ static Shdr_liste* section_name(FILE *f, Elf32_Ehdr h, Shdr_liste *L, const char
 
 
 
-
+/*
 
 int main(int argc, char **argv)
 {
@@ -491,4 +421,4 @@ int main(int argc, char **argv)
 
     fclose(f);
     return EXIT_SUCCESS;
-}
+}*/

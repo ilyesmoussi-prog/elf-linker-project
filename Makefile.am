@@ -17,10 +17,9 @@ bin_PROGRAMS=
 bin_PROGRAMS+=Options_and_debug_example
 
 
-COMMON=debug.h debug.c util.h util.c
+COMMON=debug.h debug.c util.h util.c phase1.h phase1.c
 
 EXTRA_DIST=filtre.pl .gitignore
 Options_and_debug_example_SOURCES=$(COMMON) Options_and_debug_example.c
 
 EXTRA_DIST+=
-
