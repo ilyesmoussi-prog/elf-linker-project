@@ -31,7 +31,8 @@ void usage(char *name) {
 		"%s\n [ --debug file ] : mode debug\n"
 		" [--help] : affiche cette aide\n"
 		" [ -t file ] : Affiche l'entete ELF\n"
-		" [ -S file ] : Affiche la table des sections ELF\n",
+		" [ -S file ] : Affiche la table des sections ELF\n"
+		" [ -x file ] : Affiche le contenu de la section ELF\n",
 		name);
 }
 
@@ -96,6 +97,36 @@ int main(int argc, char *argv[]) {
 			afficher_Shdr_list(fs, hdrs, L);
 			fclose(fs);
 			break;
+		/*case 'x':
+			if (optind >= argc) {
+				fprintf(stderr, "Erreur: fichier manquant\n\n");
+				usage(argv[0]);
+				exit(1);
+			}
+			FILE *fx = fopen(argv[optind], "rb");
+			if (fx == NULL) {
+				perror("fopen");
+				exit(EXIT_FAILURE);
+			}
+			Elf32_Ehdr hdrx;
+			if (read_Elf32_Ehdr(fx, &hdrx) != 0) {
+				fprintf(stderr, "Erreur: impossible de lire l'en-tete ELF.\n");
+				fclose(fx);
+				return EXIT_FAILURE;
+			}
+			Shdr_liste *Lx = malloc(sizeof(Shdr_liste));
+			if (Lx == NULL) {
+				perror("malloc");
+				fclose(fx);
+				return EXIT_FAILURE;
+			}
+			read_Shdr_list(fx, hdrx, Lx);		
+			// Pour l'exemple, on affiche le contenu de la première section non nulle
+			Shdr_liste *section = Lx->next; // sauter la section nulle
+            section_name(fx, hdrx, *section,".text");
+			afficher_section_content(section);
+			fclose(fx);
+			break;*/
 		case 'h':
 			usage(argv[0]);
 			exit(0);

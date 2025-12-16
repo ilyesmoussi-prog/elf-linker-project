@@ -52,8 +52,10 @@ char *read_shstrtab(FILE *f, Elf32_Ehdr h);
 void read_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste * L);
 void afficher_Shdr_type(Elf32_Shdr s);
 void afficher_section_flags(Elf32_Word flags);
-void afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste * L);
-
+void afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste *L);
+Shdr_liste* section_index(Shdr_liste *L, int idx) ;
+Shdr_liste* section_name(FILE *f, Elf32_Ehdr h, Shdr_liste *L, const char *target);
+void afficher_content_section(Shdr_liste *section) ;
 /******************************************************************************************************************* */
 /*************************************************** */
 

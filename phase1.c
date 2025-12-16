@@ -336,7 +336,6 @@ void afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste *L){
     Shdr_liste *p = L;
     int index = 0;
 
-   
     while (p != NULL) {
         Elf32_Shdr s = p->header;
         const char *name = (s.sh_name == 0) ? "" : (shstrtab + s.sh_name);
@@ -360,8 +359,8 @@ void afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste *L){
     }
 
 }
-/*
-static Shdr_liste* section_index(Shdr_liste *L, int idx) {
+
+ Shdr_liste* section_index(Shdr_liste *L, int idx) {
     int i = 0;
     for (Shdr_liste *p = L; p != NULL; p = p->next, i++) {
         if (i == idx) return p;
@@ -369,7 +368,7 @@ static Shdr_liste* section_index(Shdr_liste *L, int idx) {
     return NULL;
 }
 
-static Shdr_liste* section_name(FILE *f, Elf32_Ehdr h, Shdr_liste *L, const char *target) {
+Shdr_liste* section_name(FILE *f, Elf32_Ehdr h, Shdr_liste *L, const char *target) {
     char *shstrtab = read_shstrtab(f, h);
     if (!shstrtab) return NULL;
 
@@ -377,18 +376,53 @@ static Shdr_liste* section_name(FILE *f, Elf32_Ehdr h, Shdr_liste *L, const char
         Elf32_Shdr s = p->header;
         const char *name = (s.sh_name == 0) ? "" : (shstrtab + s.sh_name);
         if (strcmp(name, target) == 0) {
+            free(shstrtab);
             return p;
         }
     }
 
+    free(shstrtab);
     return NULL;
-}*/
+}
+
+
+void afficher_content_section(Shdr_liste *section) {
+    if (section == NULL) {
+        fprintf(stderr, "Section inexistante.\n");
+        return;
+    }
+
+    Elf32_Shdr sh = section->header;
+
+    if (sh.sh_type == SHT_NOBITS) {
+        printf("Hex dump of section: <SHT_NOBITS (pas de donnees dans le fichier)>\n");
+        return;
+    }
+
+    if (sh.sh_size == 0 || section->content == NULL) {
+        printf("Hex dump of section: <section vide>\n");
+        return;
+    }
+
+    printf("Hex dump of section:\n");
+
+    for (Elf32_Word i = 0; i < sh.sh_size; i++) {
+        if (i % 16 == 0) {
+            printf("  0x%08x ", (unsigned)i);  
+        }
+        printf("%02x ", (unsigned char)section->content[i]);
+
+        if (i % 16 == 15 || i == sh.sh_size - 1) {
+            printf("\n");
+        }
+    }
+}
+
 
 
 
 
 /*
-
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -421,4 +455,5 @@ int main(int argc, char **argv)
 
     fclose(f);
     return EXIT_SUCCESS;
-}*/
+}
+*/
