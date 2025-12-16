@@ -30,7 +30,8 @@ void usage(char *name) {
 	fprintf(stderr, "Usage:\n"
 		"%s\n [ --debug file ] : mode debug\n"
 		" [--help] : affiche cette aide\n"
-		" [ -t file ] : Affiche l'entete ELF\n",
+		" [ -t file ] : Affiche l'entete ELF\n"
+		" [ -S file ] : Affiche la table des sections ELF\n",
 		name);
 }
 
@@ -44,7 +45,7 @@ int main(int argc, char *argv[]) {
 		{ NULL, 0, NULL, 0 }
 	};
 
-	while ((opt = getopt_long(argc, argv, "d:h:t", longopts, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, "d:h:t:S", longopts, NULL)) != -1) {
 		switch(opt) {
 		case 't':
 			if (optind >= argc) {
@@ -68,7 +69,33 @@ int main(int argc, char *argv[]) {
 			afficher_read_Elf32_Ehdr(hdr);
 			fclose(f);
 			break;
-
+		case 'S':
+			if (optind >= argc) {
+				fprintf(stderr, "Erreur: fichier manquant\n\n");
+				usage(argv[0]);
+				exit(1);
+			}	
+			FILE *fs = fopen(argv[optind], "rb");
+			if (fs == NULL) {
+				perror("fopen");
+				exit(EXIT_FAILURE);
+			}	
+			Elf32_Ehdr hdrs;
+			if (read_Elf32_Ehdr(fs, &hdrs) != 0) {
+				fprintf(stderr, "Erreur: impossible de lire l'en-tete ELF.\n");
+				fclose(fs);
+				return EXIT_FAILURE;
+			}
+			Shdr_liste *L = malloc(sizeof(Shdr_liste));
+			if (L == NULL) {
+				perror("malloc");
+				fclose(fs);
+				return EXIT_FAILURE;
+			}
+			read_Shdr_list(fs, hdrs, L);
+			afficher_Shdr_list(fs, hdrs, L);
+			fclose(fs);
+			break;
 		case 'h':
 			usage(argv[0]);
 			exit(0);

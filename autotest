@@ -11,10 +11,10 @@ MINE="/tmp/mine_header.txt"
 READELF="/tmp/readelf_header.txt"
 
 # Ton programme : on garde les 19 dernières lignes
-./Options_and_debug_example -t "$FILE" | tail -n 19 > "$MINE"
+./Options_and_debug_example -S "$FILE" | tail -n 20 > "$MINE"
 
 # readelf officiel : idem
-arm-none-eabi-readelf -h "$FILE" | tail -n 19 > "$READELF"
+arm-none-eabi-readelf -S "$FILE" | tail -n 20 > "$READELF"
 
 echo "===== DIFF (readelf vs programme) ====="
 diff -u "$READELF" "$MINE"

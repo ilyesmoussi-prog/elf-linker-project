@@ -166,7 +166,7 @@ int afficher_read_Elf32_Ehdr(Elf32_Ehdr header) {
 //################################################################################################################################
 //################################################################################################################################
 //lire le header de section 
-/*int read_Elf32_Shdr(FILE *f, Elf32_Ehdr h, unsigned int index, Elf32_Shdr *s)
+int read_Elf32_Shdr(FILE *f, Elf32_Ehdr h, unsigned int index, Elf32_Shdr *s)
 {
     Elf32_Off offset = h.e_shoff + index * h.e_shentsize;
 
@@ -180,17 +180,17 @@ int afficher_read_Elf32_Ehdr(Elf32_Ehdr header) {
         return -1;
     }
 
-    if (_fich(h)) {
-        s->sh_name      = recuperer_valeur32(h, s->sh_name);
-        s->sh_type      = recuperer_valeur32(h, s->sh_type);
-        s->sh_flags     = recuperer_valeur32(h, s->sh_flags);
-        s->sh_addr      = recuperer_valeur32(h, s->sh_addr);
-        s->sh_offset    = recuperer_valeur32(h, s->sh_offset);
-        s->sh_size      = recuperer_valeur32(h, s->sh_size);
-        s->sh_link      = recuperer_valeur32(h, s->sh_link);
-        s->sh_info      = recuperer_valeur32(h, s->sh_info);
-        s->sh_addralign = recuperer_valeur32(h, s->sh_addralign);
-        s->sh_entsize   = recuperer_valeur32(h, s->sh_entsize);
+    if (is_big_endian_fich(h)) {
+        s->sh_name      = reverse_4(s->sh_name);
+        s->sh_type      = reverse_4(s->sh_type);
+        s->sh_flags     = reverse_4(s->sh_flags);
+        s->sh_addr      = reverse_4(s->sh_addr);
+        s->sh_offset    = reverse_4(s->sh_offset);
+        s->sh_size      = reverse_4(s->sh_size);
+        s->sh_link      = reverse_4(s->sh_link);
+        s->sh_info      = reverse_4(s->sh_info);
+        s->sh_addralign = reverse_4(s->sh_addralign);
+        s->sh_entsize   = reverse_4(s->sh_entsize);
     }
 
     return 0;
@@ -313,7 +313,7 @@ void afficher_section_flags(Elf32_Word flags)
     if (flags & SHF_LINK_ORDER)       buf[pos++] = 'L';
 	if (flags & SHF_OS_NONCONFORMING) buf[pos++] = 'O';
     if (pos == 0) {
-        buf[pos++] = '-';
+        buf[pos++] = ' ';
     }
 
     buf[pos] = '\0';
@@ -360,7 +360,7 @@ void afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste *L){
     }
 
 }
-
+/*
 static Shdr_liste* section_index(Shdr_liste *L, int idx) {
     int i = 0;
     for (Shdr_liste *p = L; p != NULL; p = p->next, i++) {
