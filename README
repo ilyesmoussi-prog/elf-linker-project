@@ -6,4 +6,6 @@ autoreconf -vif
 make
 
 puis executer aussi config pour le repertoire Exemples 
-cd /home/belaid/Bureau/groupe-6/Examples_fusion && autoreconf -i && cd .. && ./configure && make
+cd Examples_fusion && autoreconf -i && cd .. && ./configure && make
+./Options_and_debug_example -S ./Examples_fusion/exe
+mple1.o
