@@ -46,16 +46,10 @@ int main(int argc, char *argv[]) {
 		{ NULL, 0, NULL, 0 }
 	};
 
-	while ((opt = getopt_long(argc, argv, "d:h:t:S", longopts, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, "d:h:t:S:x", longopts, NULL)) != -1) {
 		switch(opt) {
 		case 't':
-			if (optind >= argc) {
-				fprintf(stderr, "Erreur: fichier manquant\n\n");
-				usage(argv[0]);
-				exit(1);
-			}
-
-			FILE *f = fopen(argv[optind], "rb");
+			FILE *f = fopen(optarg, "rb");
 			if (f == NULL) {
 				perror("fopen");
 				exit(EXIT_FAILURE);
@@ -71,12 +65,7 @@ int main(int argc, char *argv[]) {
 			fclose(f);
 			break;
 		case 'S':
-			if (optind >= argc) {
-				fprintf(stderr, "Erreur: fichier manquant\n\n");
-				usage(argv[0]);
-				exit(1);
-			}	
-			FILE *fs = fopen(argv[optind], "rb");
+			FILE *fs = fopen(optarg, "rb");
 			if (fs == NULL) {
 				perror("fopen");
 				exit(EXIT_FAILURE);
@@ -97,36 +86,50 @@ int main(int argc, char *argv[]) {
 			afficher_Shdr_list(fs, hdrs, L);
 			fclose(fs);
 			break;
-		/*case 'x':
+		case 'x': {
 			if (optind >= argc) {
 				fprintf(stderr, "Erreur: fichier manquant\n\n");
 				usage(argv[0]);
 				exit(1);
 			}
+
 			FILE *fx = fopen(argv[optind], "rb");
 			if (fx == NULL) {
 				perror("fopen");
 				exit(EXIT_FAILURE);
 			}
+
 			Elf32_Ehdr hdrx;
 			if (read_Elf32_Ehdr(fx, &hdrx) != 0) {
 				fprintf(stderr, "Erreur: impossible de lire l'en-tete ELF.\n");
 				fclose(fx);
-				return EXIT_FAILURE;
+				exit(EXIT_FAILURE);
 			}
+
 			Shdr_liste *Lx = malloc(sizeof(Shdr_liste));
 			if (Lx == NULL) {
 				perror("malloc");
 				fclose(fx);
-				return EXIT_FAILURE;
+				exit(EXIT_FAILURE);
 			}
-			read_Shdr_list(fx, hdrx, Lx);		
-			// Pour l'exemple, on affiche le contenu de la première section non nulle
-			Shdr_liste *section = Lx->next; // sauter la section nulle
-            section_name(fx, hdrx, *section,".text");
-			afficher_section_content(section);
+
+			read_Shdr_list(fx, hdrx, Lx);
+
+			/* chercher la section .text */
+			//Shdr_liste *section = section_name(fx, hdrx, Lx, ".text");
+			Shdr_liste *section = section_index(Lx, 1); // suppose que .text est la section 1
+			if (section == NULL) {
+				fprintf(stderr, "Section .text introuvable\n");
+				fclose(fx);
+				exit(EXIT_FAILURE);
+			}
+
+			afficher_content_section(section);
+
 			fclose(fx);
-			break;*/
+			break;
+		}
+
 		case 'h':
 			usage(argv[0]);
 			exit(0);

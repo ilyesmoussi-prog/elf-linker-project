@@ -386,7 +386,8 @@ Shdr_liste* section_name(FILE *f, Elf32_Ehdr h, Shdr_liste *L, const char *targe
 }
 
 
-void afficher_content_section(Shdr_liste *section) {
+void afficher_content_section(Shdr_liste *section)
+{
     if (section == NULL) {
         fprintf(stderr, "Section inexistante.\n");
         return;
@@ -394,29 +395,34 @@ void afficher_content_section(Shdr_liste *section) {
 
     Elf32_Shdr sh = section->header;
 
-    if (sh.sh_type == SHT_NOBITS) {
-        printf("Hex dump of section: <SHT_NOBITS (pas de donnees dans le fichier)>\n");
-        return;
-    }
-
-    if (sh.sh_size == 0 || section->content == NULL) {
-        printf("Hex dump of section: <section vide>\n");
+    if (sh.sh_type == SHT_NOBITS || sh.sh_size == 0 || section->content == NULL) {
+        printf("Hex dump of section: <no data>\n");
         return;
     }
 
     printf("Hex dump of section:\n");
 
-    for (Elf32_Word i = 0; i < sh.sh_size; i++) {
-        if (i % 16 == 0) {
-            printf("  0x%08x ", (unsigned)i);  
-        }
-        printf("%02x ", (unsigned char)section->content[i]);
+    for (Elf32_Word i = 0; i < sh.sh_size; i += 16) {
 
-        if (i % 16 == 15 || i == sh.sh_size - 1) {
-            printf("\n");
+        /* offset */
+        printf("  0x%08x ", (unsigned)i);
+
+        /* afficher jusqu'à 16 octets, groupés par 4 */
+        for (int j = 0; j < 16; j += 4) {
+            for (int k = 0; k < 4; k++) {
+                Elf32_Word idx = i + j + k;
+                if (idx < sh.sh_size)
+                    printf("%02x", (unsigned char)section->content[idx]);
+                else
+                    printf("  ");
+            }
+            printf(" ");
         }
+
+        printf("\n");
     }
 }
+
 
 
 

@@ -18,3 +18,18 @@ arm-none-eabi-readelf -S "$FILE" | tail -n 20 > "$READELF"
 
 echo "===== DIFF (readelf vs programme) ====="
 diff -u "$READELF" "$MINE"
+
+./Options_and_debug_example -x "$FILE" \
+  | grep "^  0x" \
+  | grep -Eo '[0-9a-fA-F]{8}' \
+  | tr 'A-F' 'a-f' \
+  > "$MINE"
+
+# readelf: garder uniquement les groupes hex (8 hex)
+arm-none-eabi-readelf -x .text "$FILE" \
+  | grep "^  0x" \
+  | grep -Eo '[0-9a-fA-F]{8}' \
+  | tr 'A-F' 'a-f' \
+  > "$READELF"
+echo "===== DIFF (groupes hex uniquement) ====="
+diff -u "$READELF" "$MINE"
