@@ -241,10 +241,21 @@ void read_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste * L)
     {
         N = malloc( sizeof(Shdr_liste) );
         read_Elf32_Shdr(f, h, i, &(N->header));
-        fseek( f, N->header.sh_offset, SEEK_SET );
-        N->content = malloc( N->header.sh_size );
-        fread( N->content, N->header.sh_size, 1, f); 
         //section suivante
+        if (fseek(f, N->header.sh_offset, SEEK_SET) != 0) {
+            perror("fseek section content");
+            
+        }
+        N->content = malloc(N->header.sh_size);
+        if (!N->content) {
+            perror("malloc section content");
+        }
+        size_t r = fread(N->content, 1, N->header.sh_size, f);
+        if (r != N->header.sh_size) {
+            fprintf(stderr, "Erreur fread: lu %zu octets sur %u\n", r, (unsigned)N->header.sh_size);
+            
+        }
+
         p->next = N;
         p = N;
         N->next = NULL;

@@ -4,3 +4,6 @@ il faut compiler avec la commande
 autoreconf -vif
 ./configure
 make
+
+puis executer aussi config pour le repertoire Exemples 
+cd /home/belaid/Bureau/groupe-6/Examples_fusion && autoreconf -i && cd .. && ./configure && make
