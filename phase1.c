@@ -8,8 +8,8 @@ int is_big_endian_fich(Elf32_Ehdr h) {
 }
 /************************************ETAPE 1 ***************************************************/
 /********************************************************************************************* */
-
-int read_Elf32_Ehdr(FILE *f, Elf32_Ehdr *h)
+//recuperer l'entete ELF du fichier dans la structure h
+int E1_read_Elf32_Ehdr(FILE *f, Elf32_Ehdr *h)
 {
     if (fseek(f, 0, SEEK_SET) != 0) {
         perror("fseek");
@@ -35,6 +35,7 @@ int read_Elf32_Ehdr(FILE *f, Elf32_Ehdr *h)
     int is_bigend = is_big_endian_fich(*h);
 
     // Si le fichier est en big-endian, il faut inverser les octets des champs
+    //reverse 2 ou 4 octets selon le type du champs
     if (is_bigend) {
 		h->e_type      = reverse_2(h->e_type);
 		h->e_machine   = reverse_2(h->e_machine);
@@ -99,7 +100,7 @@ const char *type_to_string(Elf32_Ehdr header)
 
 
 
-int afficher_read_Elf32_Ehdr(Elf32_Ehdr header) {
+int E1_afficher_read_Elf32_Ehdr(Elf32_Ehdr header) {
 	
 	printf("=== EN-TÊTE ELF ===\n");
 	// Affichage des 16 octets magiques
@@ -167,7 +168,7 @@ int afficher_read_Elf32_Ehdr(Elf32_Ehdr header) {
 //***********************************************************ETAPE 2**********************************************************************
 //*************************************************************************************************************************************** */
 //lire le header de section 
-int read_Elf32_Shdr(FILE *f, Elf32_Ehdr h, unsigned int index, Elf32_Shdr *s)
+int E2_read_Elf32_Shdr(FILE *f, Elf32_Ehdr h, unsigned int index, Elf32_Shdr *s)
 {
     Elf32_Off offset = h.e_shoff + index * h.e_shentsize;
 
@@ -196,12 +197,12 @@ int read_Elf32_Shdr(FILE *f, Elf32_Ehdr h, unsigned int index, Elf32_Shdr *s)
 
     return 0;
 }
-
+//lire la table des chaines de caracteres des noms de sections
 char *read_shstrtab(FILE *f, Elf32_Ehdr h)
 {
     Elf32_Shdr shstr_hdr;
 
-    if (read_Elf32_Shdr(f, h, h.e_shstrndx, &shstr_hdr) != 0) {
+    if (E2_read_Elf32_Shdr(f, h, h.e_shstrndx, &shstr_hdr) != 0) {
         fprintf(stderr, "Impossible de lire le header de .shstrtab\n");
         return NULL;
     }
@@ -212,7 +213,7 @@ char *read_shstrtab(FILE *f, Elf32_Ehdr h)
         return NULL;
     }
 
-    if (fseek(f, shstr_hdr.sh_offset, SEEK_SET) != 0) {
+    if (fseek(f, shstr_hdr.sh_offset, SEEK_SET) != 0) {//se placer  au debut de la section shstrtab
         perror("fseek shstrtab");
         free(shstrtab);
         return NULL;
@@ -230,18 +231,18 @@ char *read_shstrtab(FILE *f, Elf32_Ehdr h)
 
 
 //lecture de la liste des sections
-void read_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste * L)
+void E2_read_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste * L)
 {
     int i;
 
     Shdr_liste * p = L, *N;
     L->next = NULL;
     
-    read_Elf32_Shdr(f, h, 0, &(L->header));
+    E2_read_Elf32_Shdr(f, h, 0, &(L->header));// lire la premiere section (index 0)
     for( i = 1; i < h.e_shnum; i++ )
     {
         N = malloc( sizeof(Shdr_liste) );
-        read_Elf32_Shdr(f, h, i, &(N->header));
+        E2_read_Elf32_Shdr(f, h, i, &(N->header));
         //section suivante
         if (fseek(f, N->header.sh_offset, SEEK_SET) != 0) {
             perror("fseek section content");
@@ -251,7 +252,7 @@ void read_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste * L)
         if (!N->content) {
             perror("malloc section content");
         }
-        size_t r = fread(N->content, 1, N->header.sh_size, f);
+        size_t r = fread(N->content, 1, N->header.sh_size, f);// lire le contenu de la section
         if (r != N->header.sh_size) {
             fprintf(stderr, "Erreur fread: lu %zu octets sur %u\n", r, (unsigned)N->header.sh_size);
             
@@ -264,52 +265,29 @@ void read_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste * L)
 }
 
 
-void afficher_Shdr_type(Elf32_Shdr s){
-	switch(s.sh_type){
-		case SHT_NULL :
-			printf(" %15s ","NULL");
-			break;
-		case SHT_PROGBITS :
-			printf(" %15s ","PROGBITS");
-			break;
-		case SHT_SYMTAB :
-			printf(" %15s ","SYMTAB");
-			break;
-		case SHT_STRTAB :
-			printf(" %15s ","STRTAB");
-			break;
-		case SHT_RELA :
-			printf(" %15s ","RELA");
-			break;
-		case SHT_HASH :
-			printf(" %15s ","HASH");
-			break;
-		case SHT_DYNAMIC :
-			printf(" %15s ","DYNAMIC");
-			break;
-		case SHT_NOTE :
-			printf(" %15s ","NOTE");
-			break;
-		case SHT_NOBITS :
-			printf(" %15s ","NOBITS");
-			break;
-		case SHT_REL :
-			printf(" %15s ","REL");
-			break;
-		case SHT_SHLIB :
-			printf(" %15s ","SHLIB");
-			break;
-		case SHT_DYNSYM :
-			printf(" %15s ","DYNSYM");
-			break;
-		case SHT_LOPROC :
-			printf(" %15s ","LOPROC");
-			break;
-		default :
-			printf(" %15s ","ARM_ATTRIBUTES");
-			break;
-	}
+void afficher_Shdr_type(Elf32_Shdr s)
+{
+    const char *type;
+
+    switch (s.sh_type) {
+        case SHT_NULL:     type = "NULL"; break;
+        case SHT_PROGBITS: type = "PROGBITS"; break;
+        case SHT_SYMTAB:   type = "SYMTAB"; break;
+        case SHT_STRTAB:   type = "STRTAB"; break;
+        case SHT_RELA:     type = "RELA"; break;
+        case SHT_HASH:     type = "HASH"; break;
+        case SHT_DYNAMIC:  type = "DYNAMIC"; break;
+        case SHT_NOTE:     type = "NOTE"; break;
+        case SHT_NOBITS:   type = "NOBITS"; break;
+        case SHT_REL:      type = "REL"; break;
+        case SHT_SHLIB:    type = "SHLIB"; break;
+        case SHT_DYNSYM:   type = "DYNSYM"; break;
+        default:           type = "ARM_ATTRIBUTES"; break;
+    }
+
+    printf(" %-15s", type);
 }
+
 void afficher_section_flags(Elf32_Word flags)
 {
    // W = write, A = alloc, X = exec
@@ -334,9 +312,9 @@ void afficher_section_flags(Elf32_Word flags)
 }
 
 
-void afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste *L){
+void E2_afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste *L){
 
-    char *shstrtab = read_shstrtab(f, h);
+ char *shstrtab = read_shstrtab(f, h);// lire la table des chaines de caracteres des noms de sections pour l'affichage des noms de sections
     if (!shstrtab) {
         fprintf(stderr, "Impossible de lire .shstrtab\n");
         return;
@@ -350,7 +328,7 @@ void afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste *L){
 
     while (p != NULL) {
         Elf32_Shdr s = p->header;
-        const char *name = (s.sh_name == 0) ? "" : (shstrtab + s.sh_name);
+        const char *name = (s.sh_name == 0) ? "" : (shstrtab + s.sh_name);// recuperer le nom de la section a partir de sh_name et de la table des chaines de caracteres
         printf("  [%2d] %-18s", index, name);
         afficher_Shdr_type(s);  
         printf(" %08x  %06x  %06x  %02x ",
@@ -369,7 +347,7 @@ void afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste *L){
         p = p->next;
         index++;
     }
-
+    free(shstrtab);
 }
 //***********************************************************ETAPE 3**********************************************************************
 //***************************************************************************************************************************************
@@ -400,7 +378,7 @@ Shdr_liste* section_name(FILE *f, Elf32_Ehdr h, Shdr_liste *L, const char *targe
 }
 
 
-void afficher_content_section(Shdr_liste *section)
+void E3_afficher_content_section(Shdr_liste *section)
 {
     if (section == NULL) {
         fprintf(stderr, "Section inexistante.\n");
@@ -421,7 +399,7 @@ void afficher_content_section(Shdr_liste *section)
         /* offset */
         printf("  0x%08x ", (unsigned)i);
 
-        /* afficher jusqu'à 16 octets, groupés par 4 */
+        /* afficher jusqu'à 16 octets, groupés par 4 comme la commande readelf */
         for (int j = 0; j < 16; j += 4) {
             for (int k = 0; k < 4; k++) {
                 Elf32_Word idx = i + j + k;
@@ -481,7 +459,7 @@ void correct_endian_sym(Elf32_Sym *s) {
     s->st_shndx = reverse_2(s->st_shndx);
 }
 
-void afficher_symtab(FILE *f, Elf32_Ehdr h, Shdr_liste *L) {
+void E4_afficher_symtab(FILE *f, Elf32_Ehdr h, Shdr_liste *L) {
 
     Shdr_liste *symtab = NULL;
 
@@ -525,7 +503,7 @@ void afficher_symtab(FILE *f, Elf32_Ehdr h, Shdr_liste *L) {
         /* Name */
         const char *name = "";
 
-        if (ELF32_ST_TYPE(s.st_info) == STT_SECTION) {
+        if (ELF32_ST_TYPE(s.st_info) == STT_SECTION) {// symbole de type section
             /* Nom = nom de la section st_shndx (dans .shstrtab) */
             Shdr_liste *sec = section_index(L, s.st_shndx);
             if (sec && sec->header.sh_name != 0) {
@@ -555,6 +533,7 @@ void afficher_symtab(FILE *f, Elf32_Ehdr h, Shdr_liste *L) {
                ndx,
                name);
     }
+    free(shstrtab);
 }
 
 //***********************************************************ETAPE 5**********************************************************************
@@ -572,50 +551,76 @@ const char *arm_rel_type(unsigned type)
         default: return "R_ARM_<UNKNOWN>";
     }
 }
-void afficher_relocation(Elf32_Ehdr h, Shdr_liste *L)
+
+
+void E5_afficher_relocation(FILE *f, Elf32_Ehdr h, Shdr_liste *L)
 {
+    /* table des noms de sections */
+    char *shstrtab = read_shstrtab(f, h);
+    if (!shstrtab) {
+        fprintf(stderr, "Erreur: impossible de lire .shstrtab\n");
+        return;
+    }
+
     for (Shdr_liste *relsec = L; relsec != NULL; relsec = relsec->next) {
 
         Elf32_Shdr sh = relsec->header;
-        if (sh.sh_type != SHT_REL && sh.sh_type != SHT_RELA) continue;
+        if (sh.sh_type != SHT_REL && sh.sh_type != SHT_RELA)
+            continue;
 
         /* section cible patchée + symtab associée */
-        Shdr_liste *target = section_index(L, sh.sh_info);//index de la section quon va modifier
-        Shdr_liste *symtab = section_index(L, sh.sh_link);//index de la table de symboles pour interpreter les symboles
+        Shdr_liste *target = section_index(L, sh.sh_info); // index de la section qu'on va modifier
+        Shdr_liste *symtab = section_index(L, sh.sh_link); // index de la table de symboles
         if (!target || !symtab) {
-            fprintf(stderr, "Erreur: section cible ou symtab introuvable pour la section de relocation\n");
+            fprintf(stderr,
+                    "Erreur: section cible ou symtab introuvable pour la section de relocation\n");
             continue;
         }
-        printf("\nRelocation section idx=%u targets section idx=%u\n",
-               (unsigned)sh.sh_link, (unsigned)sh.sh_info);
+
+        /* nom de la section de relocation  */
+        const char *relname = (sh.sh_name == 0) ? "" : (shstrtab + sh.sh_name);
+
+        /* nombre d'entrées */
+        int n = (sh.sh_type == SHT_REL)
+                    ? sh.sh_size / sizeof(Elf32_Rel)
+                    : sh.sh_size / sizeof(Elf32_Rela);
+
+        
+        printf("\nRelocation section '%s' at offset 0x%x contains %d entries:\n",
+               relname,
+               (unsigned)sh.sh_offset,
+               n);
 
         if (sh.sh_type == SHT_REL) {
-            int n = sh.sh_size / sizeof(Elf32_Rel);
-            Elf32_Rel *rels = (Elf32_Rel *) relsec->content;//acceder au cntenu de chaque entree ie section rel
 
+            Elf32_Rel *rels = (Elf32_Rel *)relsec->content;
             printf("  Offset     Type              Sym\n");
+
             for (int i = 0; i < n; i++) {
                 Elf32_Rel r = rels[i];
-                if (is_big_endian_fich(h)) {     
-                    r.r_offset = reverse_4(r.r_offset);//ou on va appliquer la relocation dans la section cible
-                    r.r_info   = reverse_4(r.r_info);//type de relocation + symbole concerne
-                }
 
-                unsigned sym  = ELF32_R_SYM(r.r_info);//on extrait l'index du symbole dans symtab
-                unsigned type = ELF32_R_TYPE(r.r_info);//on extrait le type de relocation
+                if (is_big_endian_fich(h)) {
+                    r.r_offset = reverse_4(r.r_offset); //ou on va appliquer la relocation dans la section cible
+                    r.r_info   = reverse_4(r.r_info);   //type de relocation + symbole concerne
+                }
+                unsigned sym  = ELF32_R_SYM(r.r_info);  //on extrait l'index du symbole dans symtab
+                unsigned type = ELF32_R_TYPE(r.r_info);  //on extrait le type de relocation
+                
 
                 printf("  %08x  %-16s  %u\n",
                        (unsigned)r.r_offset,
                        arm_rel_type(type),
                        sym);
             }
-        } else { /* SHT_RELA */
-            int n = sh.sh_size / sizeof(Elf32_Rela);
-            Elf32_Rela *rels = (Elf32_Rela *) relsec->content;
 
+        } else { /* SHT_RELA */
+
+            Elf32_Rela *rels = (Elf32_Rela *)relsec->content;
             printf("  Offset     Type              Sym   Addend\n");
+
             for (int i = 0; i < n; i++) {
                 Elf32_Rela r = rels[i];
+
                 if (is_big_endian_fich(h)) {
                     r.r_offset = reverse_4(r.r_offset);
                     r.r_info   = reverse_4(r.r_info);
@@ -633,42 +638,26 @@ void afficher_relocation(Elf32_Ehdr h, Shdr_liste *L)
             }
         }
     }
+
+    free(shstrtab);
 }
 
-
-
-/*
-int main(int argc, char **argv)
+/********************************************************************************************************** */
+/**********************************************************Free************************************************** */
+void free_Shdr_list(Shdr_liste *L)
 {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <fichier-elf>\n", argv[0]);
-        return EXIT_FAILURE;
+    Shdr_liste *p = L;
+    while (p) {
+        Shdr_liste *next = p->next;
+
+        /* libérer le contenu de la section */
+        if (p->content) {
+            free(p->content);
+        }
+
+        
+        free(p);
+
+        p = next;
     }
-
-    const char *filename = argv[1];
-    FILE *f = fopen(filename, "rb");
-    if (!f) {
-        perror("fopen");
-        return EXIT_FAILURE;
-    }
-
-    Elf32_Ehdr hdr;
-    if (read_Elf32_Ehdr(f, &hdr) != 0) {
-        fprintf(stderr, "Erreur: impossible de lire l'en-tete ELF.\n");
-        fclose(f);
-        return EXIT_FAILURE;
-    }
-
-    //afficher_Elf32_Ehdr(hdr);
-	//afficher_en_tete_format_commande(hdr);
-	// Construire la liste des sections
-    Shdr_liste head;
-    read_Shdr_list(f, hdr, &head);
-
-     //Afficher la table des sections (Etape 2)
-     afficher_Shdr_list(f, hdr, &head);
-
-    fclose(f);
-    return EXIT_SUCCESS;
 }
-*/
