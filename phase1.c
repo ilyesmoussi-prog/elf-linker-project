@@ -6,7 +6,8 @@
 int is_big_endian_fich(Elf32_Ehdr h) {
     return (h.e_ident[ENDIANESS_INDEX] == ELFDATA2MSB);
 }
-
+/************************************ETAPE 1 ***************************************************/
+/********************************************************************************************* */
 
 int read_Elf32_Ehdr(FILE *f, Elf32_Ehdr *h)
 {
@@ -163,8 +164,8 @@ int afficher_read_Elf32_Ehdr(Elf32_Ehdr header) {
 
 }
 
-//################################################################################################################################
-//################################################################################################################################
+//***********************************************************ETAPE 2**********************************************************************
+//*************************************************************************************************************************************** */
 //lire le header de section 
 int read_Elf32_Shdr(FILE *f, Elf32_Ehdr h, unsigned int index, Elf32_Shdr *s)
 {
@@ -370,7 +371,9 @@ void afficher_Shdr_list(FILE *f, Elf32_Ehdr h, Shdr_liste *L){
     }
 
 }
-
+//***********************************************************ETAPE 3**********************************************************************
+//***************************************************************************************************************************************
+//lire le contenu d'une section par son index ou son nom
  Shdr_liste* section_index(Shdr_liste *L, int idx) {
     int i = 0;
     for (Shdr_liste *p = L; p != NULL; p = p->next, i++) {
@@ -434,8 +437,203 @@ void afficher_content_section(Shdr_liste *section)
     }
 }
 
+//***********************************************************ETAPE 4**********************************************************************
+//***************************************************************************************************************************************
 
+// Convertit le binding d'un symbole en chaîne
+const char *sym_bind_to_string(unsigned char info) {
+    switch (ELF32_ST_BIND(info)) {
+        case STB_LOCAL:  return "LOCAL";
+        case STB_GLOBAL: return "GLOBAL";
+        case STB_WEAK:   return "WEAK";
+        default:         return "UNKNOWN";
+    }
+}
 
+// Convertit le type d'un symbole en chaîne
+const char *sym_type_to_string(unsigned char info) {
+    switch (ELF32_ST_TYPE(info)) {
+        case STT_NOTYPE:  return "NOTYPE";
+        case STT_OBJECT:  return "OBJECT";
+        case STT_FUNC:    return "FUNC";
+        case STT_SECTION: return "SECTION";
+        case STT_FILE:    return "FILE";
+        default:          return "UNKNOWN";
+    }
+}
+
+// Convertit la visibilité d'un symbole en chaîne
+const char *sym_visibility_to_string(unsigned char info) {
+    switch (info & 0x3) {  // Masque ELF32_ST_VISIBILITY
+        case STV_DEFAULT:   return "DEFAULT";
+        case STV_INTERNAL:  return "INTERNAL";
+        case STV_HIDDEN:    return "HIDDEN";
+        case STV_PROTECTED: return "PROTECTED";
+        default:            return "UNKNOWN";
+    }
+}
+
+// Correction de l'endian pour un symbole ELF32
+void correct_endian_sym(Elf32_Sym *s) {
+    s->st_name  = reverse_4(s->st_name);
+    s->st_value = reverse_4(s->st_value);
+    s->st_size  = reverse_4(s->st_size);
+    s->st_shndx = reverse_2(s->st_shndx);
+}
+
+void afficher_symtab(FILE *f, Elf32_Ehdr h, Shdr_liste *L) {
+
+    Shdr_liste *symtab = NULL;
+
+    // 1. trouver la section SYMTAB
+    for (Shdr_liste *p = L; p != NULL; p = p->next) {
+        if (p->header.sh_type == SHT_SYMTAB) {
+            symtab = p;
+            break;
+        }
+    }
+
+    if (!symtab) {
+        printf("Aucune table des symboles trouvée.\n");
+        return;
+    }
+
+    // 2. retrouver la table de chaînes associée
+    Shdr_liste *strtab = section_index(L, symtab->header.sh_link);
+    if (!strtab) {
+        fprintf(stderr, "Erreur: .strtab introuvable\n");
+        return;
+    }
+    /* 3) Lire la table des noms de sections (.shstrtab) pour STT_SECTION */
+    char *shstrtab = read_shstrtab(f, h);
+    if (!shstrtab) {
+        fprintf(stderr, "Impossible de lire .shstrtab\n");
+        return;
+    }
+
+    Elf32_Sym *symbols = (Elf32_Sym *)symtab->content;
+    int nb = symtab->header.sh_size / sizeof(Elf32_Sym);
+
+    printf("\nSymbol table '.symtab' contains %d entries:\n", nb);
+    printf("   Num:    Value  Size Type     Bind     Vis      Ndx Name\n");
+
+    for (int i = 0; i < nb; i++) {
+        Elf32_Sym s = symbols[i];
+
+        if (is_big_endian_fich(h))
+            correct_endian_sym(&s);
+        /* Name */
+        const char *name = "";
+
+        if (ELF32_ST_TYPE(s.st_info) == STT_SECTION) {
+            /* Nom = nom de la section st_shndx (dans .shstrtab) */
+            Shdr_liste *sec = section_index(L, s.st_shndx);
+            if (sec && sec->header.sh_name != 0) {
+                name = shstrtab + sec->header.sh_name;
+            }
+        } else {
+            /* Nom normal = dans .strtab via st_name */
+            if (s.st_name != 0) {
+                name = (const char *)((char *)strtab->content + s.st_name);
+            }
+        }
+
+        // Calcul de Ndx (index de section ou spécial)
+        char ndx[8];
+        if (s.st_shndx == SHN_UNDEF)       sprintf(ndx, "UND");
+        else if (s.st_shndx == SHN_ABS)    sprintf(ndx, "ABS");
+        else if (s.st_shndx == SHN_COMMON) sprintf(ndx, "COM");
+        else                               sprintf(ndx, "%3u", s.st_shndx);
+
+        printf("%6d: %08x %5u %-8s %-8s %-8s %s %s\n",
+               i,
+               (unsigned)s.st_value,
+               (unsigned)s.st_size,
+               sym_type_to_string(s.st_info),
+               sym_bind_to_string(s.st_info),
+               sym_visibility_to_string(s.st_other),
+               ndx,
+               name);
+    }
+}
+
+//***********************************************************ETAPE 5**********************************************************************
+//***************************************************************************************************************************************
+
+const char *arm_rel_type(unsigned type)
+{
+    switch (type) {
+        case R_ARM_NONE:   return "R_ARM_NONE";
+        case R_ARM_ABS32:  return "R_ARM_ABS32";
+        case R_ARM_REL32:  return "R_ARM_REL32";
+        case R_ARM_CALL:   return "R_ARM_CALL";
+        case R_ARM_JUMP24: return "R_ARM_JUMP24";
+        case R_ARM_V4BX: return "R_ARM_V4BX";
+        default: return "R_ARM_<UNKNOWN>";
+    }
+}
+void afficher_relocation(Elf32_Ehdr h, Shdr_liste *L)
+{
+    for (Shdr_liste *relsec = L; relsec != NULL; relsec = relsec->next) {
+
+        Elf32_Shdr sh = relsec->header;
+        if (sh.sh_type != SHT_REL && sh.sh_type != SHT_RELA) continue;
+
+        /* section cible patchée + symtab associée */
+        Shdr_liste *target = section_index(L, sh.sh_info);//index de la section quon va modifier
+        Shdr_liste *symtab = section_index(L, sh.sh_link);//index de la table de symboles pour interpreter les symboles
+        if (!target || !symtab) {
+            fprintf(stderr, "Erreur: section cible ou symtab introuvable pour la section de relocation\n");
+            continue;
+        }
+        printf("\nRelocation section idx=%u targets section idx=%u\n",
+               (unsigned)sh.sh_link, (unsigned)sh.sh_info);
+
+        if (sh.sh_type == SHT_REL) {
+            int n = sh.sh_size / sizeof(Elf32_Rel);
+            Elf32_Rel *rels = (Elf32_Rel *) relsec->content;//acceder au cntenu de chaque entree ie section rel
+
+            printf("  Offset     Type              Sym\n");
+            for (int i = 0; i < n; i++) {
+                Elf32_Rel r = rels[i];
+                if (is_big_endian_fich(h)) {     
+                    r.r_offset = reverse_4(r.r_offset);//ou on va appliquer la relocation dans la section cible
+                    r.r_info   = reverse_4(r.r_info);//type de relocation + symbole concerne
+                }
+
+                unsigned sym  = ELF32_R_SYM(r.r_info);//on extrait l'index du symbole dans symtab
+                unsigned type = ELF32_R_TYPE(r.r_info);//on extrait le type de relocation
+
+                printf("  %08x  %-16s  %u\n",
+                       (unsigned)r.r_offset,
+                       arm_rel_type(type),
+                       sym);
+            }
+        } else { /* SHT_RELA */
+            int n = sh.sh_size / sizeof(Elf32_Rela);
+            Elf32_Rela *rels = (Elf32_Rela *) relsec->content;
+
+            printf("  Offset     Type              Sym   Addend\n");
+            for (int i = 0; i < n; i++) {
+                Elf32_Rela r = rels[i];
+                if (is_big_endian_fich(h)) {
+                    r.r_offset = reverse_4(r.r_offset);
+                    r.r_info   = reverse_4(r.r_info);
+                    r.r_addend = reverse_4(r.r_addend);
+                }
+
+                unsigned sym  = ELF32_R_SYM(r.r_info);
+                unsigned type = ELF32_R_TYPE(r.r_info);
+
+                printf("  %08x  %-16s  %u   %d\n",
+                       (unsigned)r.r_offset,
+                       arm_rel_type(type),
+                       sym,
+                       (int)r.r_addend);
+            }
+        }
+    }
+}
 
 
 

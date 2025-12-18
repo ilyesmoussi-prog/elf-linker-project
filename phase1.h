@@ -57,7 +57,15 @@ Shdr_liste* section_index(Shdr_liste *L, int idx) ;
 Shdr_liste* section_name(FILE *f, Elf32_Ehdr h, Shdr_liste *L, const char *target);
 void afficher_content_section(Shdr_liste *section) ;
 /******************************************************************************************************************* */
-/*************************************************** */
-
-
+/*************************************************** Table des symboles****************************************** */
+const char *sym_bind_to_string(unsigned char info);
+const char *sym_type_to_string(unsigned char info);
+const char *sym_visibility_to_string(unsigned char info);
+void correct_endian_sym(Elf32_Sym *s);
+void afficher_symtab(FILE *f, Elf32_Ehdr h, Shdr_liste *L);
+/***************************************************************************************************************** */
+/*************************************************** Table des relocations******************************************** */
+const char *arm_rel_type(unsigned type);
+void afficher_relocation(Elf32_Ehdr h, Shdr_liste *L);
+/***************************************************************************************************************** */
 #endif /*_PHASE1_H_*/

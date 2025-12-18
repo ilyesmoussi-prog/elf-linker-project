@@ -32,7 +32,9 @@ void usage(char *name) {
 		" [--help] : affiche cette aide\n"
 		" [ -t file ] : Affiche l'entete ELF\n"
 		" [ -S file ] : Affiche la table des sections ELF\n"
-		" [ -x file ] : Affiche le contenu de la section ELF\n",
+		" [ -x file ] : Affiche le contenu de la section ELF\n"
+		" [ -b file ] : Affiche la table des symboles ELF\n"
+		" [ -r file ] : Affiche la table de relocation ELF\n",
 		name);
 }
 
@@ -46,7 +48,7 @@ int main(int argc, char *argv[]) {
 		{ NULL, 0, NULL, 0 }
 	};
 
-	while ((opt = getopt_long(argc, argv, "d:h:t:S:x", longopts, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, "d:h:t:S:x:b:r:", longopts, NULL)) != -1) {
 		switch(opt) {
 		case 't':
 			FILE *f = fopen(optarg, "rb");
@@ -86,14 +88,40 @@ int main(int argc, char *argv[]) {
 			afficher_Shdr_list(fs, hdrs, L);
 			fclose(fs);
 			break;
+		case 'b': {
+			FILE *f1 = fopen(optarg, "rb");
+			if (f1 == NULL) {
+				perror("fopen");
+				exit(EXIT_FAILURE);
+			}
+
+			Elf32_Ehdr h;
+			if (read_Elf32_Ehdr(f1, &h) != 0) {
+				fprintf(stderr, "Erreur: impossible de lire l'en-tete ELF.\n");
+				fclose(f1);
+				exit(EXIT_FAILURE);
+			}
+
+			Shdr_liste *L1 = malloc(sizeof(Shdr_liste));
+			if (L1 == NULL) {
+				perror("malloc");
+				fclose(f1);
+				exit(EXIT_FAILURE);
+			}
+
+			read_Shdr_list(f1, h, L1);
+			afficher_symtab(f1, h, L1);
+
+			fclose(f1);
+			break;
+		}	
 		case 'x': {
-			if (optind >= argc) {
+			/*if (optind >= argc) {
 				fprintf(stderr, "Erreur: fichier manquant\n\n");
 				usage(argv[0]);
 				exit(1);
-			}
-
-			FILE *fx = fopen(argv[optind], "rb");
+			}*/
+			FILE *fx = fopen(optarg, "rb");
 			if (fx == NULL) {
 				perror("fopen");
 				exit(EXIT_FAILURE);
@@ -114,10 +142,10 @@ int main(int argc, char *argv[]) {
 			}
 
 			read_Shdr_list(fx, hdrx, Lx);
-
+			const char *secname=optarg;
 			/* chercher la section .text */
-			//Shdr_liste *section = section_name(fx, hdrx, Lx, ".text");
-			Shdr_liste *section = section_index(Lx, 1); // suppose que .text est la section 1
+			Shdr_liste *section = section_name(fx, hdrx, Lx, secname);
+			//Shdr_liste *section = section_index(Lx, secname); // suppose que .text est la section 1
 			if (section == NULL) {
 				fprintf(stderr, "Section .text introuvable\n");
 				fclose(fx);
@@ -127,6 +155,34 @@ int main(int argc, char *argv[]) {
 			afficher_content_section(section);
 
 			fclose(fx);
+			break;
+		}
+		case 'r': {
+			FILE *fr = fopen(optarg, "rb");
+			if (fr == NULL) {
+				perror("fopen");
+				exit(EXIT_FAILURE);
+			}
+
+			Elf32_Ehdr hr;
+			if (read_Elf32_Ehdr(fr, &hr) != 0) {
+				fprintf(stderr, "Erreur: impossible de lire l'en-tete ELF.\n");
+				fclose(fr);
+				exit(EXIT_FAILURE);
+			}
+
+			Shdr_liste *Lr = malloc(sizeof(Shdr_liste));
+			if (Lr == NULL) {
+				perror("malloc");
+				fclose(fr);
+				exit(EXIT_FAILURE);
+			}
+
+			read_Shdr_list(fr, hr, Lr);
+			//afficher la table de relocation
+			afficher_relocation(hr, Lr);
+
+			fclose(fr);
 			break;
 		}
 
