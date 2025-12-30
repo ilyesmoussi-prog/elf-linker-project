@@ -71,4 +71,47 @@ const char *arm_rel_type(unsigned type);
 void E5_afficher_relocation(FILE *f, Elf32_Ehdr h, Shdr_liste *L);
 /***************************************************************************************************************** */
 void free_Shdr_list(Shdr_liste *L);
+
+
+
+
+
+
+ /* SecR = une section dans le fichier résultat :
+ *  - name : nom de section (sera mis dans .shstrtab)
+ *  - sh   : header Elf32_Shdr (en endian hôte)
+ *  - data : contenu binaire si ce n’est pas NOBITS, sinon NULL
+ */
+typedef struct {
+  char *name;
+  Elf32_Shdr sh;
+  unsigned char *data;
+  uint32_t data_size;
+} SecR;
+
+/*
+  Un petit “vector” dynamique (table extensible) de sections résultat.
+ */
+typedef struct {
+  SecR *v;
+  int n, cap;
+} VecSec;
+
+uint32_t align_up(uint32_t x, uint32_t a);
+char *dupliquer_chaine(const char *s);
+int contient_debug(const char *name);
+int est_comment(const char *name);
+int est_shstrtab(const char *name);
+const char *get_nom_section(char *shstrtab, Elf32_Shdr sh);
+int section_a_ignorer(const char *name, const Elf32_Shdr *sh);
+void convertir_ehdr_pour_sortie(Elf32_Ehdr *h, int big_endian_out);
+void convertir_shdr_pour_sortie(Elf32_Shdr *s, int big_endian_out);
+void vec_init(VecSec *a);
+void vec_free(VecSec *a);
+int vec_push(VecSec *a, SecR s);
+int vec_find_by_name(const VecSec *a, const char *name);
+unsigned char *construire_shstrtab(VecSec *R, uint32_t *out_size);
+int E6_fusionner_sections_(const char *fileA,const char *fileB,const char *fileOut,uint32_t **renumB_out,uint32_t **deltaB_out,size_t *lenB_out);
+
+
 #endif /*_PHASE1_H_*/

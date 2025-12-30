@@ -661,3 +661,516 @@ void free_Shdr_list(Shdr_liste *L)
         p = next;
     }
 }
+
+
+/************************************************************************************************************ */
+/************************************************************************************************************ */
+/************************************************************************************************************ */
+/************************************************************************************************************ */
+/************************************************************************************************************ */
+/************************************************************************************************************ */
+
+//aligner la section dans le fich resultat selon le champ d'alignement sh_addralign
+uint32_t align_up(uint32_t x, uint32_t a)
+{
+  if (a == 0) a = 1;
+  uint32_t r = x % a;
+  return (r == 0) ? x : (x + (a - r));
+}
+
+// * Utile ici pour stocker durablement les noms de sections (.text, .data, ...) dans la
+ /* structure résultat, car les pointeurs vers shstrtab (A/B) deviennent invalides après free(). */
+char *dupliquer_chaine(const char *s)
+{
+  if (!s) s = "";
+  size_t n = strlen(s) + 1;
+  char *p = (char*)malloc(n);
+  if (!p) return NULL;
+  memcpy(p, s, n);
+  return p;
+}
+
+/* Renvoie 1 si le nom contient ".debug", 0 sinon. */
+ int contient_debug(const char *name)
+{
+  return (name && strstr(name, ".debug") != NULL);
+}
+
+/* Renvoie 1 si c’est la section ".comment". */
+ int est_comment(const char *name)
+{
+  return (name && strcmp(name, ".comment") == 0);
+}
+
+/* Renvoie 1 si c’est la section ".shstrtab" (qu’on reconstruit). */
+int est_shstrtab(const char *name)
+{
+  return (name && strcmp(name, ".shstrtab") == 0);
+}
+
+/* Récupère le nom de section à partir de shstrtab + sh_name. */
+const char *get_nom_section(char *shstrtab, Elf32_Shdr sh)
+{
+  if (!shstrtab || sh.sh_name == 0) return "";
+  return shstrtab + sh.sh_name;
+}
+
+int section_a_ignorer(const char *name, const Elf32_Shdr *sh)
+{
+  if (!sh) return 1;
+
+  /* REL / RELA */
+  if (sh->sh_type == SHT_REL || sh->sh_type == SHT_RELA) return 1;
+
+  /* debug */
+  if (contient_debug(name)) return 1;
+
+  /* on reconstruit .shstrtab  donc on ignore celle de l'entree */
+  if (est_shstrtab(name)) return 1;
+
+  return 0;
+}
+
+/* ============================================================
+ *  Conversion endianness à l’écriture dans le fichier resultat
+ * ============================================================ */
+
+void convertir_ehdr_pour_sortie(Elf32_Ehdr *h, int big_endian_out)
+{
+  if (!big_endian_out) return;
+
+  h->e_type      = reverse_2(h->e_type);
+  h->e_machine   = reverse_2(h->e_machine);
+  h->e_version   = reverse_4(h->e_version);
+  h->e_entry     = reverse_4(h->e_entry);
+  h->e_phoff     = reverse_4(h->e_phoff);
+  h->e_shoff     = reverse_4(h->e_shoff);
+  h->e_flags     = reverse_4(h->e_flags);
+  h->e_ehsize    = reverse_2(h->e_ehsize);
+  h->e_phentsize = reverse_2(h->e_phentsize);
+  h->e_phnum     = reverse_2(h->e_phnum);
+  h->e_shentsize = reverse_2(h->e_shentsize);
+  h->e_shnum     = reverse_2(h->e_shnum);
+  h->e_shstrndx  = reverse_2(h->e_shstrndx);
+}
+
+void convertir_shdr_pour_sortie(Elf32_Shdr *s, int big_endian_out)
+{
+  if (!big_endian_out) return;
+
+  s->sh_name      = reverse_4(s->sh_name);
+  s->sh_type      = reverse_4(s->sh_type);
+  s->sh_flags     = reverse_4(s->sh_flags);
+  s->sh_addr      = reverse_4(s->sh_addr);
+  s->sh_offset    = reverse_4(s->sh_offset);
+  s->sh_size      = reverse_4(s->sh_size);
+  s->sh_link      = reverse_4(s->sh_link);
+  s->sh_info      = reverse_4(s->sh_info);
+  s->sh_addralign = reverse_4(s->sh_addralign);
+  s->sh_entsize   = reverse_4(s->sh_entsize);
+}
+
+
+/* ============================================================
+ * Structures internes simplifiées pour construire le résultat
+ * ============================================================ */
+void vec_init(VecSec *a)
+{
+  a->v = NULL;
+  a->n = 0;
+  a->cap = 0;
+}
+void vec_free(VecSec *a)
+{
+  if (!a) return;
+  for (int i = 0; i < a->n; i++) {
+    free(a->v[i].name);
+    free(a->v[i].data);
+  }
+  free(a->v);
+  a->v = NULL;
+  a->n = 0;
+  a->cap = 0;
+}
+
+/* Ajoute une section au vector. */
+int vec_push(VecSec *a, SecR s)
+{
+  if (a->n == a->cap) {
+    int nc = (a->cap == 0) ? 16 : (a->cap * 2);
+    SecR *nv = (SecR*)realloc(a->v, (size_t)nc * sizeof(SecR));
+    if (!nv) return -1;
+    a->v = nv;
+    a->cap = nc;
+  }
+  a->v[a->n++] = s;
+  return 0;
+}
+/* Trouve une section par nom, renvoie son index dans le résultat */
+int vec_find_by_name(const VecSec *a, const char *name)
+{
+  for (int i = 0; i < a->n; i++) {
+    if (a->v[i].name && name && strcmp(a->v[i].name, name) == 0) return i;
+  }
+  return -1;
+}
+
+/* ============================================================
+ Construction de .shstrtab  table dezs noms pour le fichier résultat
+ * ============================================================ */
+unsigned char *construire_shstrtab(VecSec *R, uint32_t *out_size)
+{
+  uint32_t total = 1; /* chaîne vide au debut  le premier octet '\0'*/
+  
+  for (int i = 1; i < R->n; i++) {
+    total += (uint32_t)strlen(R->v[i].name) + 1;
+  }
+
+  unsigned char *buf = (unsigned char*)malloc(total);
+  if (!buf) return NULL;
+
+  uint32_t off = 0;
+  buf[off++] = '\0';
+  //pour chaque section i>0 : sh_name = offset dans cette table.
+  for (int i = 1; i < R->n; i++) {
+    R->v[i].sh.sh_name = off;
+    uint32_t len = (uint32_t)strlen(R->v[i].name) + 1;
+    memcpy(buf + off, R->v[i].name, len);
+    off += len;
+  }
+
+  *out_size = total;
+  return buf;
+}
+
+/* ============================================================
+ *  fusion Étape 6
+ * ============================================================ */
+
+int E6_fusionner_sections_(const char *fileA,const char *fileB,const char *fileOut,uint32_t **renumB_out,uint32_t **deltaB_out,size_t *lenB_out)
+{
+  FILE *fa = NULL, *fb = NULL, *fo = NULL;
+  Elf32_Ehdr ehA, ehB;
+  Shdr_liste *LA = NULL, *LB = NULL;//liste des sections de A et B
+  char *shstrA = NULL, *shstrB = NULL;//table des chaines des noms de sections de A et B
+
+  uint32_t *renumB = NULL;
+  uint32_t *deltaB = NULL;
+
+  VecSec R;//tab des sections du fichier resultat
+  vec_init(&R);
+
+  /* ----------  Charger A son entete pour shnum et offset et LA pour la liste des sections et les noms des sections ---------- */
+  fa = fopen(fileA, "rb");
+  if (!fa) { perror("fopen A"); goto fail; }
+
+  if (E1_read_Elf32_Ehdr(fa, &ehA) != 0) goto fail;
+
+  LA = (Shdr_liste*)malloc(sizeof(Shdr_liste));
+  if (!LA) goto fail;
+  LA->content = NULL;
+  LA->next = NULL;
+  E2_read_Shdr_list(fa, ehA, LA);
+
+  shstrA = read_shstrtab(fa, ehA);
+  if (!shstrA) goto fail;
+
+  /* ---------- Charger B comme A ---------- */
+  fb = fopen(fileB, "rb");
+  if (!fb) { perror("fopen B"); goto fail; }
+
+  if (E1_read_Elf32_Ehdr(fb, &ehB) != 0) goto fail;
+
+  LB = (Shdr_liste*)malloc(sizeof(Shdr_liste));
+  if (!LB) goto fail;
+  LB->content = NULL;
+  LB->next = NULL;
+  E2_read_Shdr_list(fb, ehB, LB);
+
+  shstrB = read_shstrtab(fb, ehB);
+  if (!shstrB) goto fail;
+
+  /* ---------- Allouer les tableaux renumérotation + delta pour B  de taille nb sections de B ehB.e_shnum---------- */
+  renumB = (uint32_t*)calloc(ehB.e_shnum, sizeof(uint32_t));//nouveau numéro de section dans R pour chaque section de B on met 0 si ignoree
+  deltaB = (uint32_t*)calloc(ehB.e_shnum, sizeof(uint32_t));// décalage à ajouter aux symboles de B dans cette section pour les sections fusionnees (qui est exactement la taille de section A avant concat)
+  if (!renumB || !deltaB) goto fail;
+
+  /* ----------  Construire R section 0 qui doit etre NULL---------- */
+  {
+    SecR s0;
+    memset(&s0, 0, sizeof(s0));
+    s0.name = dupliquer_chaine("");
+    memset(&s0.sh, 0, sizeof(Elf32_Shdr));
+    s0.data = NULL;
+    s0.data_size = 0;
+    if (!s0.name || vec_push(&R, s0) != 0) goto fail;
+  }
+
+  /* ----------  Ajouter d'abord les sections de A  dans l’ordre ---------- */
+  for (int i = 1; i < (int)ehA.e_shnum; i++) {
+    Shdr_liste *sa = section_index(LA, i);//lire le contenu de la section i de A
+    if (!sa) continue;
+
+    const char *nameA = get_nom_section(shstrA, sa->header);// recuperer le nom de la section i de A
+    if (section_a_ignorer(nameA, &sa->header)) continue;
+
+    SecR s;
+    memset(&s, 0, sizeof(s));
+    s.name = dupliquer_chaine(nameA);
+    if (!s.name) goto fail;
+
+    s.sh = sa->header;//entete de la section
+
+    /* Copier le contenu si ce n’est pas NOBITS et si sh_size > 0 */
+    if (s.sh.sh_type != SHT_NOBITS && s.sh.sh_size > 0) {
+      s.data_size = s.sh.sh_size;
+      s.data = (unsigned char*)malloc(s.data_size);
+      if (!s.data) goto fail;
+      memcpy(s.data, sa->content, s.data_size);
+    }
+
+    if (vec_push(&R, s) != 0) goto fail;//ajouter la section dans le tableau resultat R
+  }
+
+  /* ---------- les sections de B : fusion / ajout / mapping ---------- */
+  for (int i = 1; i < (int)ehB.e_shnum; i++) {
+    Shdr_liste *sb = section_index(LB, i);
+    if (!sb) continue;
+
+    const char *nameB = get_nom_section(shstrB, sb->header);
+
+    /* si ignorées => renumB=0, delta=0 */
+    if (section_a_ignorer(nameB, &sb->header)) {
+      renumB[i] = 0;
+      deltaB[i] = 0;
+      continue;
+    }
+
+    /* .comment on garde une seule occurrence */
+    if (est_comment(nameB)) {
+      int j = vec_find_by_name(&R, nameB);
+      if (j >= 0) {
+        renumB[i] = (uint32_t)j;
+        deltaB[i] = 0;
+        continue;
+      }
+      /* sinon : on l’ajoute comme une section “nouvelle” */
+    }
+
+    int j = vec_find_by_name(&R, nameB);
+
+    if (j >= 0) {
+      /* Section déjà présente dans R */
+      SecR *sr = &R.v[j];//probablement c  la section de A vu qu'on l'a deja ajoutee avant
+
+      /* PROGBITS  concatener A et B*/
+      if (sr->sh.sh_type == SHT_PROGBITS && sb->header.sh_type == SHT_PROGBITS && !est_comment(nameB)) {
+        uint32_t old = sr->sh.sh_size;//au debut elle a size de A
+        uint32_t add = sb->header.sh_size;
+
+        renumB[i] = (uint32_t)j;//elle prend le numero de section j dans R car elle est deja presente
+        deltaB[i] = old; /* offset de concat pour les symboles de B dans cette section qui est la taille de section A avant concat */
+
+        if (add > 0) {
+          unsigned char *nd = (unsigned char*)realloc(sr->data, old + add);
+          if (!nd) goto fail;
+          sr->data = nd;
+          memcpy(sr->data + old, sb->content, add);
+          sr->data_size = old + add;
+        }
+        sr->sh.sh_size = old + add;//nouvelle taille de la sec apres concat
+
+        /* Alignement : conserver le max (simple et raisonnable) */
+        sr->sh.sh_addralign = (Elf32_Word)max(sr->sh.sh_addralign, sb->header.sh_addralign);
+
+        continue;
+      }
+
+      /*  NOBITS : additionner les tailles par ex .bss  */
+      if (sr->sh.sh_type == SHT_NOBITS && sb->header.sh_type == SHT_NOBITS) {
+        uint32_t old = sr->sh.sh_size;
+        uint32_t add = sb->header.sh_size;
+
+        renumB[i] = (uint32_t)j;
+        deltaB[i] = old;
+
+        sr->sh.sh_size = old + add;
+        sr->sh.sh_addralign = (Elf32_Word)max(sr->sh.sh_addralign, sb->header.sh_addralign);
+
+        continue;
+      }
+
+      /* Autres types (SYMTAB/STRTAB/...) on mappe simplement B vers cette section et à l'tape 7 on reconstruit la symtab */
+      renumB[i] = (uint32_t)j;
+      deltaB[i] = 0;
+      continue;
+    }
+    ////////////////////////////////////////////////////////////////////////////////////////
+    /* Section absente on l’ajoute donc  telle quelle */
+    {
+      SecR s;
+      memset(&s, 0, sizeof(s));
+      s.name = dupliquer_chaine(nameB);
+      if (!s.name) goto fail;
+
+      s.sh = sb->header;
+
+      if (s.sh.sh_type != SHT_NOBITS && s.sh.sh_size > 0) {
+        s.data_size = s.sh.sh_size;
+        s.data = (unsigned char*)malloc(s.data_size);
+        if (!s.data) goto fail;
+        memcpy(s.data, sb->content, s.data_size);
+      }
+
+      if (vec_push(&R, s) != 0) goto fail;
+
+      renumB[i] = (uint32_t)(R.n - 1);
+      deltaB[i] = 0;//pas de concat donc delta=0 pas d'offset a ajouter aux symboles
+    }
+  }
+
+  /* ---------- Ajouter .shstrtab reconstruit ---------- */
+  int shstrndx = R.n; /* index futur de .shstrtab */
+  {
+    SecR s;
+    memset(&s, 0, sizeof(s));
+    s.name = dupliquer_chaine(".shstrtab");
+    if (!s.name) goto fail;
+
+    memset(&s.sh, 0, sizeof(Elf32_Shdr));
+    s.sh.sh_type = SHT_STRTAB;
+    s.sh.sh_addralign = 1;
+
+    if (vec_push(&R, s) != 0) goto fail;
+  }
+
+  /* Construire le contenu de .shstrtab et remplir sh_name */
+  uint32_t shstr_size = 0;
+  unsigned char *shstr_data = construire_shstrtab(&R, &shstr_size);
+  if (!shstr_data) goto fail;
+
+  R.v[shstrndx].data = shstr_data;
+  R.v[shstrndx].data_size = shstr_size;
+  R.v[shstrndx].sh.sh_size = shstr_size;
+  /* --- Correction minimale : sh_link de .symtab doit pointer vers .strtab et sera traité dans l'etape 7 --- 
+  readelf: Warning: Section 5 has an out of range sh_link value of 17*/
+
+  int idx_symtab = vec_find_by_name(&R, ".symtab");
+  int idx_strtab = vec_find_by_name(&R, ".strtab");
+
+  if (idx_symtab >= 0 && idx_strtab >= 0) {
+    R.v[idx_symtab].sh.sh_link = (Elf32_Word)idx_strtab;
+  }
+
+
+  /* ---------- Écrire le fichier ELF résultat ---------- */
+  fo = fopen(fileOut, "wb");
+  if (!fo) { perror("fopen out"); goto fail; }
+
+  int out_big = is_big_endian_fich(ehA);
+
+  /* Preparer un Ehdr resultat il est basé sur A */
+  Elf32_Ehdr out = ehA;
+  out.e_type = ET_REL;
+  out.e_entry = 0;
+
+  /* Pas de PHDR en .o */
+  out.e_phoff = 0;
+  out.e_phnum = 0;
+  out.e_phentsize = 0;
+
+  out.e_ehsize = sizeof(Elf32_Ehdr);
+  out.e_shentsize = sizeof(Elf32_Shdr);
+  out.e_shnum = (Elf32_Half)R.n;
+  out.e_shstrndx = (Elf32_Half)shstrndx;
+  out.e_shoff = 0; /* fixé après placement des sections */
+
+  /* 8.a) écrire un en-tête provisoire  car on a pas encore placé toute les sections e_shof est inconnu*/
+  {
+    Elf32_Ehdr tmp = out;
+    convertir_ehdr_pour_sortie(&tmp, out_big);
+    if (fwrite(&tmp, 1, sizeof(tmp), fo) != sizeof(tmp)) goto fail;
+  }
+
+  /*  placer les sections (sh_offset recalculés) et écrire leur contenu */
+  uint32_t cursor = (uint32_t)sizeof(Elf32_Ehdr);
+
+  for (int i = 1; i < R.n; i++) {
+    SecR *s = &R.v[i];
+
+    /* alignement de section dans le fichier */
+    cursor = align_up(cursor, (s->sh.sh_addralign ? s->sh.sh_addralign : 1));
+
+    /* padding */
+    while ((uint32_t)ftell(fo) < cursor) fputc(0, fo);
+
+    s->sh.sh_offset = cursor;
+
+    if (s->sh.sh_type == SHT_NOBITS) {
+      /* NOBITS : pas d’octets écrits mais on a  sh_size reste significatif */
+      continue;
+    }
+
+    if (s->sh.sh_size > 0) {
+      if (!s->data) goto fail;
+      if (fwrite(s->data, 1, s->sh.sh_size, fo) != s->sh.sh_size) goto fail;
+      cursor += s->sh.sh_size;
+    }
+  }
+
+  /*  ecrire la table des headers de sections a la fin */
+  cursor = align_up(cursor, 4);
+  while ((uint32_t)ftell(fo) < cursor) fputc(0, fo);
+
+  out.e_shoff = cursor;
+
+  /* réécrire l’en-tête final (avec e_shoff correct) */
+  if (fseek(fo, 0, SEEK_SET) != 0) goto fail;
+  {
+    Elf32_Ehdr tmp = out;
+    convertir_ehdr_pour_sortie(&tmp, out_big);
+    if (fwrite(&tmp, 1, sizeof(tmp), fo) != sizeof(tmp)) goto fail;
+  }
+
+  /* écrire les Shdr */
+  if (fseek(fo, out.e_shoff, SEEK_SET) != 0) goto fail;
+  for (int i = 0; i < R.n; i++) {
+    Elf32_Shdr tmp = R.v[i].sh;
+    convertir_shdr_pour_sortie(&tmp, out_big);
+    if (fwrite(&tmp, 1, sizeof(tmp), fo) != sizeof(tmp)) goto fail;
+  }
+
+  /* ----------  Renvoyer renum/delta ---------- */
+  if (renumB_out) *renumB_out = renumB; else free(renumB);
+  if (deltaB_out) *deltaB_out = deltaB; else free(deltaB);
+  if (lenB_out)   *lenB_out = (size_t)ehB.e_shnum;
+
+  /* ---------- Libérations ---------- */
+  fclose(fo);
+  fclose(fa);
+  fclose(fb);
+
+  free(shstrA);
+  free(shstrB);
+  free_Shdr_list(LA);
+  free_Shdr_list(LB);
+  vec_free(&R);
+
+  return 0;
+
+fail:
+  if (fo) fclose(fo);
+  if (fa) fclose(fa);
+  if (fb) fclose(fb);
+
+  free(shstrA);
+  free(shstrB);
+  if (LA) free_Shdr_list(LA);
+  if (LB) free_Shdr_list(LB);
+
+  vec_free(&R);
+  free(renumB);
+  free(deltaB);
+
+  return -1;
+}

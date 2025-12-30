@@ -30,4 +30,5 @@ int is_big_endian();
 						((((x)>>16)&0xFF)<<8)|(((x)>>24)&0xFF))
 
 #define min(x,y) ((x)<(y)?(x):(y))
+#define max(x,y) ((x)>(y)?(x):(y))
 #endif

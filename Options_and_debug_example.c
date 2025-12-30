@@ -34,7 +34,8 @@ void usage(char *name) {
 		" [ -S file ] : Affiche la table des sections ELF\n"
 		" [ -x file ] : Affiche le contenu de la section ELF\n"
 		" [ -s file ] : Affiche la table des symboles ELF\n"
-		" [ -r file ] : Affiche la table de relocation ELF\n",
+		" [ -r file ] : Affiche la table de relocation ELF\n"
+		" [ -f fileA fileB out ] : Etape 6 - fusionner sections (A puis B)\n",
 		name);
 }
 
@@ -48,7 +49,7 @@ int main(int argc, char *argv[]) {
 		{ NULL, 0, NULL, 0 }
 	};
 
-	while ((opt = getopt_long(argc, argv, "d:h:t:S:x:s:r:", longopts, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, "d:h:t:S:x:s:r:f:", longopts, NULL)) != -1) {
 		const char *filename = NULL;
 		if (opt == 'x') {
 			if (optind >= argc) {
@@ -57,7 +58,15 @@ int main(int argc, char *argv[]) {
 				exit(EXIT_FAILURE);
 			}
 			filename = argv[optind];   // fichier ELF après ".text" ou "1"
-		} else {
+		}else if (opt == 'f') {
+			if (optind + 1 >= argc) {
+				fprintf(stderr, "Erreur: usage -f fileA fileB out\n\n");
+				usage(argv[0]);
+				exit(EXIT_FAILURE);
+			}
+      filename = optarg;         // on ouvre fileA (comme les autres options)
+		} 
+		else {
 			filename = optarg;         // fichier ELF directement dans optarg
 		}
 		FILE *f = fopen(filename, "rb");
@@ -131,6 +140,40 @@ int main(int argc, char *argv[]) {
 			fclose(f);
 			break;
 		}
+		case 'f': {
+			const char *fileA = optarg;
+			const char *fileB = argv[optind];
+			const char *out   = argv[optind + 1];
+
+			/* On ferme le fichier déjà ouvert (fileA) car E6 ouvrira ses propres fichiers */
+			if (f) fclose(f);
+			f = NULL;
+
+			uint32_t *renumB = NULL;
+			uint32_t *deltaB = NULL;
+			size_t lenB = 0;
+
+			int rc = E6_fusionner_sections_(fileA, fileB, out, &renumB, &deltaB, &lenB);
+			if (rc != 0) {
+			fprintf(stderr, "Erreur: fusion etape 6 a echoue.\n");
+			free(renumB);
+			free(deltaB);
+			free_Shdr_list(L);
+			exit(EXIT_FAILURE);
+			}
+
+			printf("Fusion OK: %s + %s -> %s\n", fileA, fileB, out);
+
+			/* Optionnel pour debug : afficher quelques infos */
+			// for (size_t i = 0; i < lenB; i++) {
+			//   if (renumB[i] != 0 || deltaB[i] != 0)
+			//     printf("B: sec %zu -> R: %u, delta=%u\n", i, renumB[i], deltaB[i]);
+			// }
+
+			free(renumB);
+			free(deltaB);
+			break;
+      }
 
 		case 'h':
 			usage(argv[0]);
