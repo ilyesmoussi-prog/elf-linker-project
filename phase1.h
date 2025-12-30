@@ -102,7 +102,7 @@ char *dupliquer_chaine(const char *s);
 int contient_debug(const char *name);
 int est_comment(const char *name);
 int est_shstrtab(const char *name);
-const char *get_nom_section(char *shstrtab, Elf32_Shdr sh);
+const char *get_nom_section(const char *shstrtab, Elf32_Shdr sh);
 int section_a_ignorer(const char *name, const Elf32_Shdr *sh);
 void convertir_ehdr_pour_sortie(Elf32_Ehdr *h, int big_endian_out);
 void convertir_shdr_pour_sortie(Elf32_Shdr *s, int big_endian_out);
@@ -111,7 +111,15 @@ void vec_free(VecSec *a);
 int vec_push(VecSec *a, SecR s);
 int vec_find_by_name(const VecSec *a, const char *name);
 unsigned char *construire_shstrtab(VecSec *R, uint32_t *out_size);
-int E6_fusionner_sections_(const char *fileA,const char *fileB,const char *fileOut,uint32_t **renumB_out,uint32_t **deltaB_out,size_t *lenB_out);
+int charger_elf(const char *path,FILE **f_out,Elf32_Ehdr *eh_out,Shdr_liste **L_out,char **shstr_out);
+int ajouter_section0(VecSec *R);
+int ajouter_sections_de_A(VecSec *R,Elf32_Ehdr ehA, Shdr_liste *LA,const char *shstrA,uint32_t *renumA);
+int traiter_sections_de_B(VecSec *R,Elf32_Ehdr ehB, Shdr_liste *LB,const char *shstrB,uint32_t *renumB,uint32_t *deltaB);
+int ajouter_shstrtab(VecSec *R, int *out_shstrndx);
+void correction_minimale_sh_link(VecSec *R);
+int ecrire_elf_resultat(const char *fileOut,const Elf32_Ehdr *eh_base,VecSec *R,int shstrndx,int out_big);
+int E6_fusionner_sections(const char *fileA, const char *fileB, const char *fileOut,uint32_t **renumA_out, size_t *lenA_out,uint32_t **renumB_out, uint32_t **deltaB_out, size_t *lenB_out);
+
 
 
 #endif /*_PHASE1_H_*/

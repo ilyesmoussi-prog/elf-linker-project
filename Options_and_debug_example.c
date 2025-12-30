@@ -151,13 +151,16 @@ int main(int argc, char *argv[]) {
 
 			uint32_t *renumB = NULL;
 			uint32_t *deltaB = NULL;
+			uint32_t *renumA = NULL;
+			size_t lenA = 0;
 			size_t lenB = 0;
 
-			int rc = E6_fusionner_sections_(fileA, fileB, out, &renumB, &deltaB, &lenB);
+			int rc = E6_fusionner_sections(fileA, fileB, out, &renumA, &lenA, &renumB, &deltaB, &lenB);
 			if (rc != 0) {
 			fprintf(stderr, "Erreur: fusion etape 6 a echoue.\n");
 			free(renumB);
 			free(deltaB);
+			free(renumA);
 			free_Shdr_list(L);
 			exit(EXIT_FAILURE);
 			}
