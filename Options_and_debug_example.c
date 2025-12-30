@@ -35,7 +35,8 @@ void usage(char *name) {
 		" [ -x file ] : Affiche le contenu de la section ELF\n"
 		" [ -s file ] : Affiche la table des symboles ELF\n"
 		" [ -r file ] : Affiche la table de relocation ELF\n"
-		" [ -f fileA fileB out ] : Etape 6 - fusionner sections (A puis B)\n",
+		" [ -f fileA fileB out ] : Etape 6 - fusionner sections (A puis B)\n"
+		" [ -g fileA fileB out6 out7 ] : Etape 7 - fusionner/corriger symboles (apres etape 6)\n",
 		name);
 }
 
@@ -49,7 +50,7 @@ int main(int argc, char *argv[]) {
 		{ NULL, 0, NULL, 0 }
 	};
 
-	while ((opt = getopt_long(argc, argv, "d:h:t:S:x:s:r:f:", longopts, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, "d:h:t:S:x:s:r:f:g:", longopts, NULL)) != -1) {
 		const char *filename = NULL;
 		if (opt == 'x') {
 			if (optind >= argc) {
@@ -65,6 +66,13 @@ int main(int argc, char *argv[]) {
 				exit(EXIT_FAILURE);
 			}
       filename = optarg;         // on ouvre fileA (comme les autres options)
+		}else if (opt == 'g') {
+			if (optind + 2 >= argc) {
+				fprintf(stderr, "Erreur: usage -g fileA fileB out6 out7\n\n");
+				usage(argv[0]);
+				exit(EXIT_FAILURE);
+			}
+			filename = optarg; 
 		} 
 		else {
 			filename = optarg;         // fichier ELF directement dans optarg
@@ -167,16 +175,56 @@ int main(int argc, char *argv[]) {
 
 			printf("Fusion OK: %s + %s -> %s\n", fileA, fileB, out);
 
-			/* Optionnel pour debug : afficher quelques infos */
-			// for (size_t i = 0; i < lenB; i++) {
-			//   if (renumB[i] != 0 || deltaB[i] != 0)
-			//     printf("B: sec %zu -> R: %u, delta=%u\n", i, renumB[i], deltaB[i]);
-			// }
-
 			free(renumB);
 			free(deltaB);
 			break;
       }
+		case 'g': {
+			const char *fileA = optarg;
+			const char *fileB = argv[optind];
+			const char *out6  = argv[optind + 1];
+			const char *out7  = argv[optind + 2];
+
+			/* fermer le fichier déjà ouvert (fileA) */
+			if (f) fclose(f);
+			f = NULL;
+
+			uint32_t *renumA = NULL, *renumB = NULL, *deltaB = NULL;
+			size_t lenA = 0, lenB = 0;
+			if (E6_fusionner_sections(fileA, fileB, out6, &renumA, &lenA, &renumB, &deltaB, &lenB) != 0) {
+				fprintf(stderr, "Erreur: etape 6 a echoue.\n");
+				free(renumA); free(renumB); free(deltaB);
+				free_Shdr_list(L);
+				exit(EXIT_FAILURE);
+			}
+			printf("E6 OK: %s + %s -> %s\n", fileA, fileB, out6);
+
+			uint32_t *renumSymA = NULL, *renumSymB = NULL;
+			size_t nSymA = 0, nSymB = 0;
+
+			if (E7_fusionner_corriger_symboles(fileA, fileB, out6, out7,
+												renumA, lenA,
+												renumB, deltaB, lenB,
+												&renumSymA, &nSymA,
+												&renumSymB, &nSymB) != 0) {
+				fprintf(stderr, "Erreur: etape 7 a echoue.\n");
+				free(renumA); free(renumB); free(deltaB);
+				free(renumSymA); free(renumSymB);
+				free_Shdr_list(L);
+				exit(EXIT_FAILURE);
+			}
+
+			printf("E7 OK: %s -> %s (symA=%zu symB=%zu)\n", out6, out7, nSymA, nSymB);
+
+			/* libérations */
+			free(renumA);
+			free(renumB);
+			free(deltaB);
+			free(renumSymA);
+			free(renumSymB);
+
+			break;
+			}
 
 		case 'h':
 			usage(argv[0]);

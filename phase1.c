@@ -1233,3 +1233,467 @@ fail:
   free(deltaB);
   return -1;
 }
+
+
+/****************************************************************************************************** */
+/****************************************************************************************************** */
+/****************************************************************************************************** */
+/****************************************************************************************************** */
+/****************************************************************************************************** */
+
+
+int sym_est_local(const Elf32_Sym *s) {
+  return ELF32_ST_BIND(s->st_info) == STB_LOCAL;
+}
+
+int sym_est_undef(const Elf32_Sym *s) {
+  return s->st_shndx == SHN_UNDEF;
+}
+
+int sym_est_special(const Elf32_Sym *s) {
+  return s->st_shndx == SHN_UNDEF || s->st_shndx == SHN_ABS || s->st_shndx == SHN_COMMON;
+}
+
+int sym_est_defini_en_section(const Elf32_Sym *s) {
+  return !sym_est_special(s);
+}
+
+/* Si la section d’un symbole on l'a ignorée dans OUT (renum==0), on peut jeter le symbole */
+int sym_pointe_section_ignorée(const Elf32_Sym *s, const uint32_t *renum, size_t renum_len) {
+  if (sym_est_special(s)) return 0;
+  if (s->st_shndx >= renum_len) return 1;
+  return (renum[s->st_shndx] == 0);
+}
+
+/* ---------- Lecture symtab/strtab d’un fichier ELF ---------- */
+
+
+void free_table_sym(TableSym *t) {
+  if (!t) return;
+  free(t->syms);
+  free(t->strtab);
+  memset(t, 0, sizeof(*t));
+}
+
+/* Trouver une section par nom dans la Shdr_liste (en utilisant shstrtab) */
+Shdr_liste* trouver_section_par_nom(Shdr_liste *L, const char *shstr, const char *nom) {
+  if (!L || !shstr || !nom) return NULL;
+  for (Shdr_liste *p = L; p; p = p->next) {
+    const char *n = shstr + p->header.sh_name;
+    if (strcmp(n, nom) == 0) return p;
+  }
+  return NULL;
+}
+
+/* Lire un bloc ou section depuis la liste  */
+int charger_table_sym(FILE *f, Elf32_Ehdr eh, Shdr_liste *L, char *shstr, TableSym *out) {
+  memset(out, 0, sizeof(*out));
+
+  Shdr_liste *sec_sym = trouver_section_par_nom(L, shstr, ".symtab");
+  if (!sec_sym) return -1;
+
+  /* .strtab associée = section index sec_sym->sh_link */
+  int idx_str = (int)sec_sym->header.sh_link;
+  Shdr_liste *sec_str = section_index(L, idx_str);
+  if (!sec_str) return -1;
+
+  /* symtab */
+  if (sec_sym->header.sh_entsize == 0) return -1;
+  out->nsyms = sec_sym->header.sh_size / sec_sym->header.sh_entsize;
+  out->syms  = (Elf32_Sym*)malloc(out->nsyms * sizeof(Elf32_Sym));
+  if (!out->syms) return -1;
+  memcpy(out->syms, sec_sym->content, out->nsyms * sizeof(Elf32_Sym));
+
+  /* strtab */
+  out->strsz  = sec_str->header.sh_size;
+  out->strtab = (char*)malloc(out->strsz);
+  if (!out->strtab) return -1;
+  memcpy(out->strtab, sec_str->content, out->strsz);
+
+  /* Endianness corriger les Elf32_Sym */
+  if (is_big_endian_fich(eh)) {
+    for (size_t i = 0; i < out->nsyms; i++) correct_endian_sym(&out->syms[i]);
+  }
+
+  return 0;
+}
+
+/* ---------- Construction d'une nouvelle strtab ---------- */
+int buf_init(Buf *b) {
+  b->cap = 256;
+  b->sz  = 0;
+  b->data = (unsigned char*)malloc(b->cap);
+  if (!b->data) return -1;
+  b->data[b->sz++] = '\0'; /* strtab commence toujours par 0 */
+  return 0;
+}
+
+void buf_free(Buf *b) {
+  free(b->data);
+  memset(b, 0, sizeof(*b));
+}
+
+int buf_reserve(Buf *b, size_t need) {
+  if (need <= b->cap) return 0;
+  size_t ncap = b->cap;
+  while (ncap < need) ncap *= 2;
+  unsigned char *nd = (unsigned char*)realloc(b->data, ncap);
+  if (!nd) return -1;
+  b->data = nd;
+  b->cap = ncap;
+  return 0;
+}
+
+uint32_t strtab_ajouter(Buf *b, const char *s) {
+  if (!s) s = "";
+  size_t n = strlen(s) + 1;
+  size_t off = b->sz;
+  if (buf_reserve(b, b->sz + n) != 0) return 0;
+  memcpy(b->data + b->sz, s, n);
+  b->sz += n;
+  return (uint32_t)off;
+}
+
+/* ---------- Table de symboles OUT ---------- */
+int vecsym_init(VecSym *vs) {
+  vs->cap = 64;
+  vs->n = 0;
+  vs->v = (Elf32_Sym*)malloc(vs->cap * sizeof(Elf32_Sym));
+  return vs->v ? 0 : -1;
+}
+
+void vecsym_free(VecSym *vs) {
+  free(vs->v);
+  memset(vs, 0, sizeof(*vs));
+}
+
+int vecsym_push(VecSym *vs, const Elf32_Sym *s) {
+  if (vs->n == vs->cap) {
+    size_t ncap = vs->cap * 2;
+    Elf32_Sym *nv = (Elf32_Sym*)realloc(vs->v, ncap * sizeof(Elf32_Sym));
+    if (!nv) return -1;
+    vs->v = nv;
+    vs->cap = ncap;
+  }
+  vs->v[vs->n++] = *s;
+  return 0;
+}
+
+/* Recherche  d’un symbole global déja ajoute*/
+int trouver_global_par_nom(const VecSym *out, const char *out_strtab, const char *name) {
+  for (size_t i = 0; i < out->n; i++) {
+    if (sym_est_local(&out->v[i])) continue;
+    const char *n = out_strtab + out->v[i].st_name;
+    if (strcmp(n, name) == 0) return (int)i;
+  }
+  return -1;
+}
+
+int corriger_symbole_pour_out(Elf32_Sym *dst,const Elf32_Sym *src,const uint32_t *renumSec, size_t renumSec_len,const uint32_t *deltaSec ,const char *src_strtab,Buf *out_strtab)
+{
+  //deltaSec  NULL pour A car pas de decalage a appliquer
+  *dst = *src;
+
+  const char *name = src_strtab + src->st_name;
+  dst->st_name = strtab_ajouter(out_strtab, name);
+
+  if (sym_est_special(src)) {
+    /* UND/ABS/COMMON : rien à renumerer */
+    return 0;
+  }
+
+  if (src->st_shndx >= renumSec_len) return -1;
+  uint32_t new_sh = renumSec[src->st_shndx];
+  if (new_sh == 0) return -2; /* section ignorée -> caller décidera (souvent: skip) */
+
+  dst->st_shndx = (Elf32_Half)new_sh;
+
+  if (deltaSec) {
+    dst->st_value += deltaSec[src->st_shndx];
+  }
+  return 0;
+}
+
+/* ============================================================
+ *  Fusion, renumerotation et correction des symboles
+ * ============================================================ */
+/*construire VecSec depuis liste pour avoir le format voulu lors de l'écriture*/
+int construire_vecsec_depuis_liste(VecSec *R, Shdr_liste *L, const char *shstrtab)
+{
+  vec_init(R);
+
+  for (Shdr_liste *p = L; p != NULL; p = p->next) {
+    SecR s;
+    memset(&s, 0, sizeof(s));
+
+    /* nom de section */
+    const char *nm = "";
+    if (shstrtab && p->header.sh_name != 0)
+      nm = shstrtab + p->header.sh_name;
+
+    s.name = dupliquer_chaine(nm);
+    if (!s.name) { vec_free(R); return -1; }
+
+    s.sh = p->header;
+
+    /* contenu */
+    if (s.sh.sh_type != SHT_NOBITS && s.sh.sh_size > 0) {
+      s.data_size = s.sh.sh_size;
+      s.data = (unsigned char*)malloc(s.data_size);
+      if (!s.data) { free(s.name); vec_free(R); return -1; }
+      memcpy(s.data, p->content, s.data_size);
+    }
+
+    if (vec_push(R, s) != 0) {
+      free(s.data);
+      free(s.name);
+      vec_free(R);
+      return -1;
+    }
+  }
+
+  return 0;
+}
+
+
+int E7_fusionner_corriger_symboles(const char *fileA,
+                                  const char *fileB,
+                                  const char *fileOut6,
+                                  const char *fileOut7,
+                                  const uint32_t *renumA, size_t lenA,
+                                  const uint32_t *renumB, const uint32_t *deltaB, size_t lenB,
+                                  uint32_t **renumSymA_out, size_t *nSymA_out,
+                                  uint32_t **renumSymB_out, size_t *nSymB_out)
+{
+  int ret = -1;// valeur de retour par défaut = erreur
+
+  FILE *fa = NULL, *fb = NULL, *fin = NULL;// fichiers A, B et OUT6
+  Elf32_Ehdr ehA, ehB, ehOut;// entetes ELF
+
+  Shdr_liste *LA = NULL, *LB = NULL, *Lout = NULL;// listes des sections  A B out6
+  char *shstrA = NULL, *shstrB = NULL, *shstrOut = NULL;// shstrtabs
+
+  TableSym TA, TB;// tables des symboles A et B
+  memset(&TA, 0, sizeof(TA));
+  memset(&TB, 0, sizeof(TB));
+
+  uint32_t *renumSymA = NULL, *renumSymB = NULL;// renumerotation des symboles A et B
+
+  Buf outStr;// nouvelle strtab
+  VecSym outSym;// nouvelle symtab
+  int outStr_init = 0, outSym_init = 0;
+
+  VecSec R;// sections résultat
+  int R_init = 0;
+
+  /* =========  Charger A et B (symtabs) ========= */
+  if (charger_elf(fileA, &fa, &ehA, &LA, &shstrA) != 0) goto done;
+  if (charger_table_sym(fa, ehA, LA, shstrA, &TA) != 0) goto done;
+
+  if (charger_elf(fileB, &fb, &ehB, &LB, &shstrB) != 0) goto done;
+  if (charger_table_sym(fb, ehB, LB, shstrB, &TB) != 0) goto done;
+
+  renumSymA = (uint32_t*)calloc(TA.nsyms, sizeof(uint32_t));
+  renumSymB = (uint32_t*)calloc(TB.nsyms, sizeof(uint32_t));
+  if (!renumSymA || !renumSymB) goto done;
+
+  /* =========  Charger out6 (sections) ========= */
+  if (charger_elf(fileOut6, &fin, &ehOut, &Lout, &shstrOut) != 0) goto done;
+
+  /* =========  Construire la nouvelle .symtab + .strtab ========= */
+  if (buf_init(&outStr) != 0) goto done;
+  outStr_init = 1;//indicateur d'initialisation
+  if (vecsym_init(&outSym) != 0) goto done;
+  outSym_init = 1;
+
+  /* entrée 0 obligatoire */
+  {
+    Elf32_Sym s0; memset(&s0, 0, sizeof(s0));
+    if (vecsym_push(&outSym, &s0) != 0) goto done;
+  }
+
+  /* ---- Locaux : A puis B ---- */
+  for (size_t i = 1; i < TA.nsyms; i++) {
+    if (!sym_est_local(&TA.syms[i])) continue;
+
+    if (sym_pointe_section_ignorée(&TA.syms[i], renumA, lenA)) {
+      renumSymA[i] = 0;
+      continue;
+    }
+
+    Elf32_Sym dst;
+    int cr = corriger_symbole_pour_out(&dst, &TA.syms[i], renumA, lenA, NULL, TA.strtab, &outStr);//pas de decalage pour A
+    if (cr == -2) { renumSymA[i] = 0; continue; }// section ignorée
+    if (cr != 0) goto done;
+
+    renumSymA[i] = (uint32_t)outSym.n;// nouvelle position du symbole dans outSym
+    if (vecsym_push(&outSym, &dst) != 0) goto done;
+  }
+
+  for (size_t i = 1; i < TB.nsyms; i++) {
+    if (!sym_est_local(&TB.syms[i])) continue;
+
+    if (sym_pointe_section_ignorée(&TB.syms[i], renumB, lenB)) {
+      renumSymB[i] = 0;
+      continue;
+    }
+
+    Elf32_Sym dst;
+    int cr = corriger_symbole_pour_out(&dst, &TB.syms[i], renumB, lenB, deltaB, TB.strtab, &outStr);//section de B avec decalage
+    if (cr == -2) { renumSymB[i] = 0; continue; }
+    if (cr != 0) goto done;
+
+    renumSymB[i] = (uint32_t)outSym.n;// nouvelle position du symbole dans outSym
+    if (vecsym_push(&outSym, &dst) != 0) goto done;
+  }
+
+  uint32_t first_global = (uint32_t)outSym.n;
+
+  /* ---- 3.b Globaux : A puis B avec règles ---- */
+  for (size_t i = 1; i < TA.nsyms; i++) {
+    if (sym_est_local(&TA.syms[i])) continue;
+
+    const char *name = TA.strtab + TA.syms[i].st_name;
+    int pos = trouver_global_par_nom(&outSym, (char*)outStr.data, name);
+   
+    if (pos < 0) {
+       /* pas encore présent -> ajouter */
+      if (sym_pointe_section_ignorée(&TA.syms[i], renumA, lenA)) { renumSymA[i] = 0; continue; }
+
+      Elf32_Sym dst;
+      int cr = corriger_symbole_pour_out(&dst, &TA.syms[i], renumA, lenA, NULL, TA.strtab, &outStr);
+      if (cr == -2) { renumSymA[i] = 0; continue; }
+      if (cr != 0) goto done;
+
+      renumSymA[i] = (uint32_t)outSym.n;
+      if (vecsym_push(&outSym, &dst) != 0) goto done;
+    } else {
+      /* déjà présent : on ne fait rien ici (c'est A qui a cree l’entrée) */
+      renumSymA[i] = (uint32_t)pos;
+    }
+  }
+
+  for (size_t i = 1; i < TB.nsyms; i++) {
+    if (sym_est_local(&TB.syms[i])) continue;
+
+    const char *name = TB.strtab + TB.syms[i].st_name;
+    int pos = trouver_global_par_nom(&outSym, (char*)outStr.data, name);
+
+    if (pos < 0) {
+      if (sym_pointe_section_ignorée(&TB.syms[i], renumB, lenB)) { renumSymB[i] = 0; continue; }
+
+      Elf32_Sym dst;
+      int cr = corriger_symbole_pour_out(&dst, &TB.syms[i], renumB, lenB, deltaB, TB.strtab, &outStr);
+      if (cr == -2) { renumSymB[i] = 0; continue; }
+      if (cr != 0) goto done;
+
+      renumSymB[i] = (uint32_t)outSym.n;
+      if (vecsym_push(&outSym, &dst) != 0) goto done;
+    } else {
+      /* déjà présent : fusion selon règles */
+      Elf32_Sym *exist = &outSym.v[pos];
+      int exist_undef = (exist->st_shndx == SHN_UNDEF);
+      int new_undef   = sym_est_undef(&TB.syms[i]);
+      // les deux définis -> erreur
+      if (!exist_undef && !new_undef) {
+        fprintf(stderr, "E7 ERREUR: symbole global '%s' défini dans A et B\n", name);
+        goto done;
+      }
+      /* si exist UND et B défini => remplacer par la définition de B */
+      if (exist_undef && !new_undef) {
+        Elf32_Sym dst;
+        int cr = corriger_symbole_pour_out(&dst, &TB.syms[i], renumB, lenB, deltaB, TB.strtab, &outStr);
+        if (cr == -2) { renumSymB[i] = 0; continue; }
+        if (cr != 0) goto done;
+        dst.st_name = exist->st_name;
+        *exist = dst; /* remplace l'UND par la définition */
+      }
+      /* mettre à jour la renumération */
+      renumSymB[i] = (uint32_t)pos;
+    }
+  }
+
+  /* ========= 4) Remplacer .symtab / .strtab dans Lout6========= */
+  Shdr_liste *sec_sym_out = trouver_section_par_nom(Lout, shstrOut, ".symtab");
+  Shdr_liste *sec_str_out = trouver_section_par_nom(Lout, shstrOut, ".strtab");
+  if (!sec_sym_out || !sec_str_out) goto done;
+
+  /* .strtab */
+  free(sec_str_out->content);
+  sec_str_out->content = (unsigned char*)malloc(outStr.sz);
+  if (!sec_str_out->content) goto done;
+  memcpy(sec_str_out->content, outStr.data, outStr.sz);
+  sec_str_out->header.sh_size = (Elf32_Word)outStr.sz;
+  sec_str_out->header.sh_type = SHT_STRTAB;
+  sec_str_out->header.sh_addralign = 1;
+
+  /* .symtab */
+  int out_big = is_big_endian_fich(ehOut);
+  free(sec_sym_out->content);
+  sec_sym_out->content = (unsigned char*)malloc(outSym.n * sizeof(Elf32_Sym));
+  if (!sec_sym_out->content) goto done;
+  /* Copie temporaire pour conversion endian sans casser outSym.v */
+  Elf32_Sym *tmp = (Elf32_Sym*)malloc(outSym.n * sizeof(Elf32_Sym));
+  if (!tmp) goto done;
+
+  memcpy(tmp, outSym.v, outSym.n * sizeof(Elf32_Sym));
+
+  /* Convertir les champs multi-octets des Elf32_Sym si sortie big-endian */
+  if (out_big) {
+    for (size_t k = 0; k < outSym.n; k++) {
+      correct_endian_sym(&tmp[k]);
+    }
+  }
+
+  memcpy(sec_sym_out->content, tmp, outSym.n * sizeof(Elf32_Sym));
+  free(tmp);
+
+  //memcpy(sec_sym_out->content, outSym.v, outSym.n * sizeof(Elf32_Sym));
+  sec_sym_out->header.sh_size = (Elf32_Word)(outSym.n * sizeof(Elf32_Sym));
+  sec_sym_out->header.sh_type = SHT_SYMTAB;
+  sec_sym_out->header.sh_entsize = sizeof(Elf32_Sym);
+  sec_sym_out->header.sh_info = (Elf32_Word)first_global;
+
+  /* ========= 5) Re-écriture out7 via VecSec + ecrire_elf_resultat ========= */
+  if (construire_vecsec_depuis_liste(&R, Lout, shstrOut) != 0) goto done;
+  R_init = 1;
+
+  if (ecrire_elf_resultat(fileOut7, &ehOut, &R, (int)ehOut.e_shstrndx, is_big_endian_fich(ehOut)) != 0)
+    goto done;
+
+  /* ========= Sorties ========= */
+  if (renumSymA_out) *renumSymA_out = renumSymA; else free(renumSymA);
+  if (renumSymB_out) *renumSymB_out = renumSymB; else free(renumSymB);
+  if (nSymA_out) *nSymA_out = TA.nsyms;
+  if (nSymB_out) *nSymB_out = TB.nsyms;
+
+  ret = 0;
+
+done:
+  if (ret != 0) { free(renumSymA); free(renumSymB); }
+
+  if (fa) fclose(fa);
+  if (fb) fclose(fb);
+  if (fin) fclose(fin);
+
+  free(shstrA); free(shstrB); free(shstrOut);
+  if (LA) free_Shdr_list(LA);
+  if (LB) free_Shdr_list(LB);
+  if (Lout) free_Shdr_list(Lout);
+
+  free_table_sym(&TA);
+  free_table_sym(&TB);
+
+  if (outSym_init) vecsym_free(&outSym);
+  if (outStr_init) buf_free(&outStr);
+
+  if (R_init) vec_free(&R);
+
+  return ret;
+}
+
+
+
+
+
+

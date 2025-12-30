@@ -120,6 +120,60 @@ void correction_minimale_sh_link(VecSec *R);
 int ecrire_elf_resultat(const char *fileOut,const Elf32_Ehdr *eh_base,VecSec *R,int shstrndx,int out_big);
 int E6_fusionner_sections(const char *fileA, const char *fileB, const char *fileOut,uint32_t **renumA_out, size_t *lenA_out,uint32_t **renumB_out, uint32_t **deltaB_out, size_t *lenB_out);
 
+/******************************************************************** */
+/***********************************Table de symboles************************ */
+
+typedef struct {
+  Elf32_Sym  *syms;//table des symboles
+  size_t      nsyms;//nombre de symboles
+  char       *strtab;//table des chaines
+  size_t      strsz;//taille de la table des chaines
+} TableSym;
+/**structure strtab*** */
+typedef struct {
+  unsigned char *data;
+  size_t         sz;
+  size_t         cap;
+} Buf;
+/* Structure pour stocker les symboles dans out */
+typedef struct {
+  Elf32_Sym *v;
+  size_t     n;
+  size_t     cap;
+} VecSym;
+
+
+int sym_est_local(const Elf32_Sym *s);
+int sym_est_undef(const Elf32_Sym *s);
+int sym_est_special(const Elf32_Sym *s);
+int sym_est_defini_en_section(const Elf32_Sym *s);
+int sym_pointe_section_ignorée(const Elf32_Sym *s, const uint32_t *renum, size_t renum_len);
+void free_table_sym(TableSym *t);
+Shdr_liste* trouver_section_par_nom(Shdr_liste *L, const char *shstr, const char *nom);
+int charger_table_sym(FILE *f, Elf32_Ehdr eh, Shdr_liste *L, char *shstr, TableSym *out) ;
+int buf_init(Buf *b);
+void buf_free(Buf *b);
+int buf_reserve(Buf *b, size_t need) ;
+uint32_t strtab_ajouter(Buf *b, const char *s) ;
+int vecsym_init(VecSym *vs) ;
+void vecsym_free(VecSym *vs);
+int vecsym_push(VecSym *vs, const Elf32_Sym *s);
+int trouver_global_par_nom(const VecSym *out, const char *out_strtab, const char *name);
+int corriger_symbole_pour_out(Elf32_Sym *dst,const Elf32_Sym *src,const uint32_t *renumSec, size_t renumSec_len,const uint32_t *deltaSec ,const char *src_strtab,Buf *out_strtab);
+int construire_vecsec_depuis_liste(VecSec *R, Shdr_liste *L, const char *shstrtab);
+int E7_fusionner_corriger_symboles(const char *fileA,
+                                  const char *fileB,
+                                  const char *fileOut6,
+                                  const char *fileOut7,
+                                  const uint32_t *renumA, size_t lenA,
+                                  const uint32_t *renumB, const uint32_t *deltaB, size_t lenB,
+                                  uint32_t **renumSymA_out, size_t *nSymA_out,
+                                  uint32_t **renumSymB_out, size_t *nSymB_out);
+
+
+
+
+
 
 
 #endif /*_PHASE1_H_*/
