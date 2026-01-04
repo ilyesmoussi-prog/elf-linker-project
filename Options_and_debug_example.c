@@ -25,6 +25,7 @@ Contact: Guillaume.Huard@imag.f
 #include <stdlib.h>
 #include "debug.h"
 #include "phase1.h"
+#include "phase2.h"
 
 void usage(char *name) {
 	fprintf(stderr, "Usage:\n"
@@ -36,7 +37,9 @@ void usage(char *name) {
 		" [ -s file ] : Affiche la table des symboles ELF\n"
 		" [ -r file ] : Affiche la table de relocation ELF\n"
 		" [ -f fileA fileB out ] : Etape 6 - fusionner sections (A puis B)\n"
-		" [ -g fileA fileB out6 out7 ] : Etape 7 - fusionner/corriger symboles (apres etape 6)\n",
+		" [ -g fileA fileB out6 out7 ] : Etape 7 - fusionner/corriger symboles (apres etape 6)\n"
+		" [ -w fileA fileB out ] : Etape 8 - fusionner/corriger symboles et relocations (apres etape 6)\n"
+		" [ -z out8 out9 ] : Etape 9 - finaliser/normaliser ELF (shstrtab + sh_link/sh_info) \n",
 		name);
 }
 
@@ -50,7 +53,7 @@ int main(int argc, char *argv[]) {
 		{ NULL, 0, NULL, 0 }
 	};
 
-	while ((opt = getopt_long(argc, argv, "d:h:t:S:x:s:r:f:g:", longopts, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, "d:h:t:S:x:s:r:f:g:w:z:", longopts, NULL)) != -1) {
 		const char *filename = NULL;
 		if (opt == 'x') {
 			if (optind >= argc) {
@@ -73,7 +76,15 @@ int main(int argc, char *argv[]) {
 				exit(EXIT_FAILURE);
 			}
 			filename = optarg; 
-		} 
+		} else if (opt == 'z') {
+			if (optind >= argc) {
+				fprintf(stderr, "Erreur: usage -z out8 out9\n\n");
+				usage(argv[0]);
+				exit(EXIT_FAILURE);
+			}
+      filename = optarg;  // out8
+}
+		
 		else {
 			filename = optarg;         // fichier ELF directement dans optarg
 		}
@@ -225,7 +236,97 @@ int main(int argc, char *argv[]) {
 
 			break;
 			}
+		case 'w': {
+			// Usage: ./Options_and_debug_example -w fileA.o fileB.o out8.o
 
+			if (optind + 2 > argc) {
+				fprintf(stderr, "Usage: %s -w fileA.o fileB.o out8.o\n", argv[0]);
+				exit(EXIT_FAILURE);
+			}
+
+			const char *fileA  = optarg;
+			const char *fileB = argv[optind];
+			const char *out8 = argv[optind + 1];
+
+			const char *out6 = "/tmp/out6.o";
+			const char *out7 = "/tmp/out7.o";
+
+			uint32_t *renumA = NULL, *renumB = NULL, *deltaB = NULL;
+			size_t lenA = 0, lenB = 0;
+
+			uint32_t *renumSymA = NULL, *renumSymB = NULL;
+			size_t nSymA = 0, nSymB = 0;
+
+			// ---- E6
+			if (E6_fusionner_sections(fileA, fileB, out6,
+									&renumA, &lenA,
+									&renumB, &deltaB, &lenB) != 0) {
+				fprintf(stderr, "[-w] Erreur E6\n");
+				goto w_fail;
+			}
+
+			// ---- E7
+			if (E7_fusionner_corriger_symboles(fileA, fileB,
+											out6, out7,
+											renumA, lenA,
+											renumB, deltaB, lenB,
+											&renumSymA, &nSymA,
+											&renumSymB, &nSymB) != 0) {
+				fprintf(stderr, "[-w] Erreur E7\n");
+				goto w_fail;
+			}
+
+			// ---- E8
+			if (E8_fusionner_corriger_relocations(fileA, fileB,
+												out7, out8,
+												renumA, lenA,
+												renumB, deltaB, lenB,
+												renumSymA, nSymA,
+												renumSymB, nSymB) != 0) {
+				fprintf(stderr, "[-w] Erreur E8\n");
+				goto w_fail;
+			}
+
+			printf("[-w] OK: %s\n", out8);
+
+			free(renumA);
+			free(renumB);
+			free(deltaB);
+			free(renumSymA);
+			free(renumSymB);
+
+			exit(EXIT_SUCCESS);
+
+		 w_fail:
+			free(renumA);
+			free(renumB);
+			free(deltaB);
+			free(renumSymA);
+			free(renumSymB);
+			exit(EXIT_FAILURE);
+		}
+		case 'z': {
+			const char *out8 = optarg;
+			const char *out9 = argv[optind];
+
+			if (!out9) {
+				fprintf(stderr, "Erreur: usage -9 out8 out9\n\n");
+				usage(argv[0]);
+				exit(EXIT_FAILURE);
+			}
+
+			if (f) fclose(f);
+			f = NULL;
+
+			if (E9_produire_elf_final(out8, out9) != 0) {
+				fprintf(stderr, "Erreur: etape 9 a echoue.\n");
+				free_Shdr_list(L);
+				exit(EXIT_FAILURE);
+			}
+
+			printf("E9 OK: %s -> %s\n", out8, out9);
+			break;
+		}
 		case 'h':
 			usage(argv[0]);
 			exit(0);

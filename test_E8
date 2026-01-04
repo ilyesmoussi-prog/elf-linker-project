@@ -1,0 +1,50 @@
+#!/bin/bash
+
+A="./Examples_fusion/exemple1.o"
+B="./Examples_fusion/exemple2.o"
+OUT="./out8.o"
+
+echo "════════════════════════════════════════════════════════════════"
+echo "  DIAGNOSTIC RELOCATIONS"
+echo "════════════════════════════════════════════════════════════════"
+echo ""
+
+# Relocations dans A
+echo "──── FICHIER A ────"
+arm-none-eabi-readelf -r "$A" | head -50
+echo ""
+echo "Nombre de relocations A:"
+arm-none-eabi-readelf -r "$A" | grep -cE '^\s*[0-9a-f]{8}'
+echo ""
+
+# Relocations dans B
+echo "──── FICHIER B ────"
+arm-none-eabi-readelf -r "$B" | head -50
+echo ""
+echo "Nombre de relocations B:"
+arm-none-eabi-readelf -r "$B" | grep -cE '^\s*[0-9a-f]{8}'
+echo ""
+
+# Relocations dans OUT
+echo "──── FICHIER RÉSULTAT ────"
+arm-none-eabi-readelf -r "$OUT" | head -50
+echo ""
+echo "Nombre de relocations OUT:"
+arm-none-eabi-readelf -r "$OUT" | grep -cE '^\s*[0-9a-f]{8}'
+echo ""
+
+# Sections de relocation
+echo "──── SECTIONS DE RELOCATION ────"
+echo "A:"
+arm-none-eabi-readelf -S "$A" | grep -E '\.rel\.'
+echo ""
+echo "B:"
+arm-none-eabi-readelf -S "$B" | grep -E '\.rel\.'
+echo ""
+echo "OUT:"
+arm-none-eabi-readelf -S "$OUT" | grep -E '\.rel\.'
+echo ""
+
+# Détail des sections
+echo "──── DÉTAIL SECTIONS OUT ────"
+arm-none-eabi-readelf -S "$OUT"
