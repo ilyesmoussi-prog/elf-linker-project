@@ -1121,6 +1121,64 @@ static void free_relaggs(RelAgg *arr, size_t n) {
   }
   free(arr);
 }
+/******************************************************** *****************************/
+/*                      patch addend corrections dans les Elf32_Rel                   */
+/**************************************************************************************/
+
+static uint32_t read_u32_endian(const unsigned char *p, int big)
+{
+  uint32_t v;
+  memcpy(&v, p, 4);
+  if (big) v = reverse_4(v);
+  return v;
+}
+
+static void write_u32_endian(unsigned char *p, uint32_t v, int big)
+{
+  if (big) v = reverse_4(v);
+  memcpy(p, &v, 4);
+}
+
+static int patch_addend_section_symbol(VecSec *R,
+                                       uint32_t target_new,
+                                       uint32_t out_off,
+                                       uint32_t rtype,
+                                       uint32_t delta_def,
+                                       int out_big)
+{
+  if (delta_def == 0) return 0;
+  if (!R) return 0;
+  if (target_new >= (uint32_t)R->n) return 0;
+
+  SecR *t = &R->v[target_new];
+  if (!t->data || t->sh.sh_type == SHT_NOBITS) return 0;
+  if (out_off + 4 > t->data_size) return 0;
+
+  unsigned char *loc = t->data + out_off;
+
+  if (rtype == R_ARM_ABS32) {
+    uint32_t add = read_u32_endian(loc, out_big);
+    add += delta_def;
+    write_u32_endian(loc, add, out_big);
+    return 0;
+  }
+
+  if (rtype == R_ARM_CALL || rtype == R_ARM_JUMP24 || rtype == R_ARM_PC24) {
+    uint32_t insn = read_u32_endian(loc, out_big);
+
+    int32_t imm24 = (int32_t)(insn & 0x00ffffff);
+    if (imm24 & 0x00800000) imm24 |= ~0x00ffffff; /* sign extend 24 */
+
+    imm24 += (int32_t)(delta_def / 4);
+
+    insn = (insn & 0xff000000) | ((uint32_t)imm24 & 0x00ffffff);
+    write_u32_endian(loc, insn, out_big);
+    return 0;
+  }
+
+  return 0;
+}
+
 
 
 // Fonction parcourt les sections selectionne les SHT_REL et corrige les Elf32_Rel
@@ -1129,11 +1187,27 @@ static int absorber_relocations(const Elf32_Ehdr *eh,
                                 Shdr_liste *L,
                                 const char *shstr,
                                 const uint32_t *renumSec, size_t lenSec,
-                                const uint32_t *deltaSec, /* NULL pour A, deltaB pour B */
+                                const uint32_t *deltaSec,// NULL pour A
                                 const uint32_t *renumSym, size_t lenSym,
+                                VecSec *Rout, int out_big,
                                 RelAgg **aggs, size_t *naggs, size_t *capaggs)
 {
+
   int file_big = is_big_endian_fich(*eh);
+
+  const Elf32_Sym *symtab = NULL;
+  size_t symtab_n = 0;
+
+  for (int si = 1; si < (int)eh->e_shnum; si++) {
+    Shdr_liste *s = section_index(L, si);
+    if (!s) continue;
+    if (s->header.sh_type == SHT_SYMTAB) {
+      size_t entsz = s->header.sh_entsize ? s->header.sh_entsize : sizeof(Elf32_Sym);
+      symtab = (const Elf32_Sym*)s->content;
+      symtab_n = entsz ? (s->header.sh_size / entsz) : 0;
+      break;
+    }
+  }
 
   /* Parcourir toutes les sections du fichier */
   for (int i = 1; i < (int)eh->e_shnum; i++) {
@@ -1214,6 +1288,25 @@ static int absorber_relocations(const Elf32_Ehdr *eh,
       /* Reconstruire r_info avec le nouveau symbole */
       r.r_info = ELF32_R_INFO(newSym, type);
 
+      /* 3: correction de l'addend pour STT_SECTION (REL) === */
+      if (oldSym != 0 && symtab && oldSym < symtab_n) {
+        Elf32_Sym ss = symtab[oldSym];
+        if (file_big) correct_endian_sym(&ss);
+
+        if (ELF32_ST_TYPE(ss.st_info) == STT_SECTION) {
+          uint32_t def_sec_old = (uint32_t)ss.st_shndx;
+          uint32_t delta_def = 0;
+          if (deltaSec && def_sec_old < lenSec) delta_def = deltaSec[def_sec_old];
+
+          (void)patch_addend_section_symbol(Rout,
+                                            target_new,
+                                            r.r_offset,
+                                            type,
+                                            delta_def,
+                                            out_big);
+        }
+      }
+
       /* Stocker dans l'agrégat (en endian host pour l'instant) */
       if (relagg_push(&(*aggs)[idx], &r) != 0) return -1;
     }
@@ -1249,7 +1342,7 @@ int E8_fusionner_corriger_relocations(const char *fileA,
   if (charger_elf(fileA, &fa, &ehA, &LA, &shstrA) != 0) goto done;
   if (charger_elf(fileB, &fb, &ehB, &LB, &shstrB) != 0) goto done;
   if (charger_elf(fileOut7, &fo7, &ehO, &LO, &shstrO) != 0) goto done;
-
+  int out_big = is_big_endian_fich(ehO);
   /* R[0] = NULL section */
   if (ajouter_section0(&R) != 0) goto done;
 
@@ -1281,8 +1374,9 @@ int E8_fusionner_corriger_relocations(const char *fileA,
   /* Absorber relocations de A */
   if (absorber_relocations(&ehA, LA, shstrA,
                            renumA, lenA,
-                           NULL, /* A: pas de delta */
+                           NULL,// pas de delta pour A
                            renumSymA, nSymA,
+                           &R, out_big,
                            &aggs, &naggs, &capaggs) != 0) goto done;
 
   /* Absorber relocations de B (deltaB important !) */
@@ -1290,6 +1384,7 @@ int E8_fusionner_corriger_relocations(const char *fileA,
                            renumB, lenB,
                            deltaB,
                            renumSymB, nSymB,
+                           &R, out_big,
                            &aggs, &naggs, &capaggs) != 0) goto done;
 
   /* Ajouter les sections .rel.* dans R */
@@ -1395,7 +1490,7 @@ done:
 
   if (ajouter_section0(&R) != 0) goto done;
 
-  /* Copier toutes les sections sauf .shstrtab (on la reconstruit) */
+  /* Copier toutes les sections sauf .shstrtab (on la reconstruit pour eviter tout erreur) */
   for (int i = 1; i < (int)eh.e_shnum; i++) {
     Shdr_liste *s = section_index(L, i);
     if (!s) continue;

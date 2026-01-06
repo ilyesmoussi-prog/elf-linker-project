@@ -13,7 +13,7 @@ Licence Publique Générale GNU pour plus de détails.
 Vous devez avoir reçu une copie de la Licence Publique Générale GNU en même
 temps que ce programme ; si ce n'est pas le cas, écrivez à la fee Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307,
-États-Unis.
+États-Unis.git 
 
 Contact: Guillaume.Huard@imag.f
          ENSIMAG - Laboratoire LIG
