@@ -1,11 +1,151 @@
-Custom ELF Loader intended for pedagogic use
-pour executer sur une bonne base 
-il faut compiler avec la commande
+# ELF Linker (pédagogique) — Mode d'emploi
+
+Ce dépôt contient un petit ensemble d'utilitaires pédagogiques pour lecture et fusion d'objets ELF (phases 1–9 du projet). Ce README décrit l'installation des dépendances, la compilation, l'exécution des outils et les scripts de test fournis.
+
+---
+
+## Prérequis (Debian / Ubuntu)
+
+Installer les paquets recommandés :
+```sh
+sudo apt update
+sudo apt install -y build-essential autoconf automake libtool pkg-config \
+  gcc-arm-none-eabi binutils-arm-none-eabi \
+  qemu-user qemu-user-static \
+  perl sed grep awk diffutils
+```
+
+Remarque : les scripts de test peuvent utiliser des outils cross (arm-none-eabi-*) et QEMU pour exécution d'objets ARM.
+
+---
+
+## Compilation du projet
+
+Depuis le répertoire racine `elf_linker-1.0/` :
+```sh
 autoreconf -vif
 ./configure
 make
+```
+Le binaire principal généré est `Options_and_debug_example` (dans le même répertoire).
 
-puis executer aussi config pour le repertoire Exemples 
-cd Examples_fusion && autoreconf -i && cd .. && ./configure && make
-./Options_and_debug_example -S ./Examples_fusion/exe
-mple1.o
+Pour les exemples (si fournis) :
+```sh
+cd Examples_fusion
+autoreconf -i
+./configure
+make
+cd ..
+```
+
+---
+
+## Programme principal : Options_and_debug_example
+
+Emplacement source : `Options_and_debug_example.c`  
+Binaire : `./Options_and_debug_example`
+
+Usage général :
+```sh
+./Options_and_debug_example [options]
+```
+
+Options principales (exemples d'utilisation) :
+- Afficher l'en-tête ELF :
+  ```sh
+  ./Options_and_debug_example -t fichier.o
+  ```
+- Afficher la table des sections :
+  ```sh
+  ./Options_and_debug_example -S fichier.o
+  ```
+- Afficher le contenu d'une section (ex: .text) :
+  ```sh
+  ./Options_and_debug_example -x .text fichier.o
+  ```
+- Afficher la table des symboles :
+  ```sh
+  ./Options_and_debug_example -s fichier.o
+  ```
+- Afficher la table de relocations :
+  ```sh
+  ./Options_and_debug_example -r fichier.o
+  ```
+- Fusionner sections (Étape 6) :
+  ```sh
+  ./Options_and_debug_example -f A.o B.o out6.o
+  ```
+  (implémentation : `E6_fusionner_sections` dans `phase2.*`)
+- Fusion/correction des symboles (Étape 7) :
+  ```sh
+  ./Options_and_debug_example -g A.o B.o out6.o out7.o
+  ```
+- Fusion/correction des relocations (Étape 8) :
+  ```sh
+  ./Options_and_debug_example -w A.o B.o out8.o
+  ```
+- Finaliser / normaliser ELF (Étape 9) :
+  ```sh
+  ./Options_and_debug_example -z out8.o out9.o
+  ```
+
+---
+
+## Fichiers et modules importants
+
+- `phase1.h` / `phase1.c` : lecture et affichage des en-têtes et sections ELF (phase 1–4).
+- `phase2.h` / `phase2.c` : fusion de sections, tables de symboles et relocations (phase 6–9).
+- `debug.h` / `debug.c` : helpers de debug (si présents).
+- `Examples_fusion/` : exemples fournis pour tests et démonstrations.
+- Scripts de tests : `autotest`, `autotest_phase1.sh`, `autotest_phase2.sh`, `test_E8`, `test_E9.sh`, `test_E9_exec.sh` (selon présence).
+
+---
+
+## Tests et autotests
+
+Rendre les scripts exécutables si nécessaire puis lancer :
+```sh
+chmod +x autotest
+./autotest -S ./Options_and_debug_example
+```
+Exemple de test étape 9 :
+```sh
+./test_E9.sh ./Options_and_debug_example
+./test_E9_exec.sh ./Options_and_debug_example
+```
+Consulter chaque script pour les pré-conditions (chemins d'outils cross, QEMU).
+
+---
+
+## Exécution d'objets ARM (QEMU)
+
+Si vous devez exécuter binaires/objets ARM générés pour les tests :
+```sh
+# Exécuter un binaire ARM 32-bit
+qemu-arm ./mon_programme_arm
+# Ou, pour ARM big-endian
+qemu-arm -cpu help  # voir options
+```
+Utiliser `qemu-user-static` si vous voulez exécuter sur un système hôte sans émulation dynamique.
+
+---
+
+## Dépannage rapide
+
+- Erreur de compilation : vérifier `build-essential`, `autoconf`, `automake`.
+- Outil `arm-none-eabi-*` manquant : installer `gcc-arm-none-eabi` et `binutils-arm-none-eabi`.
+- Tests qui lancent QEMU : installer `qemu-user` et `qemu-user-static`.
+- Si `./configure` échoue : relancer `autoreconf -vif` puis `./configure`.
+
+---
+
+## Licence et contact
+
+Code original pédagogique fourni par Guillaume Huard (voir entêtes sources). Projet utilisé à titre pédagogique — pas de garantie. Pour contact : consulter les entêtes source (adresse originale incluse dans les fichiers sources).
+
+---
+
+Si vous voulez, je peux :
+- Générer ce README directement dans `elf_linker-1.0/` (fichier `README.md`),
+- Ajouter exemples d'exécution détaillés pour chaque option,
+- Rédiger des instructions pour créer un paquetage `.deb` ou un conteneur Docker pour tests reproductibles.

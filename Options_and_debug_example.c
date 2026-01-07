@@ -310,7 +310,7 @@ int main(int argc, char *argv[]) {
 			const char *out9 = argv[optind];
 
 			if (!out9) {
-				fprintf(stderr, "Erreur: usage -9 out8 out9\n\n");
+				fprintf(stderr, "Erreur: usage -z out8 out9\n\n");
 				usage(argv[0]);
 				exit(EXIT_FAILURE);
 			}

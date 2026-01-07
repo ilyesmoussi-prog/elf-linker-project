@@ -1,0 +1,235 @@
+#!/bin/sh
+
+OPTION="$1"
+FILEA="$2"
+FILEB="$3"
+OUTFILE="$4"
+
+if [ -z "$OPTION" ] || [ -z "$FILEA" ]; then
+  echo "Usage:"
+  echo "  $0 -f <fileA.o> <fileB.o> <out.o>"
+  exit 1
+fi
+
+SECA="/tmp/sections_A.txt"
+SECB="/tmp/sections_B.txt"
+SECU="/tmp/sections_union.txt"
+
+PASS_COUNT=0
+
+fail() { echo "❌ FAIL: $*"; exit 1; }
+pass() { echo "✅ PASS: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
+step() { echo "   → $*"; }   # détails intermédiaires (concat, NOBITS, copie A, etc.)
+
+liste_sections_utiles() {
+  F="$1"
+  arm-none-eabi-readelf -S --wide "$F" \
+    | awk '
+      /^\s*\[\s*[0-9]+\]/ {
+        name=$2; type=$3; size=$6;
+        if (name=="") next;                 # ignorer NULL
+        if (name ~ /^\.debug/) next;        # ignorer debug
+        if (name ~ /^\.rel/ || name ~ /^\.rela/) next;  # ignorer .rel.*
+        if (type=="REL" || type=="RELA") next;          # ignorer REL/RELA
+        print name, type, size;
+      }'
+}
+
+get_type() { LIST="$1"; NAME="$2"; awk -v n="$NAME" '$1==n {print $2; exit}' "$LIST"; }
+get_size_hex() { LIST="$1"; NAME="$2"; awk -v n="$NAME" '$1==n {print $3; exit}' "$LIST"; }
+
+hex_to_dec() {
+  H="$1"
+  H=$(echo "$H" | sed 's/^0x//')
+  echo $((16#$H))
+}
+
+section_existe() {
+  F="$1"; NAME="$2"
+  arm-none-eabi-readelf -S --wide "$F" | grep -qE "[[:space:]]$NAME([[:space:]]|$)"
+}
+
+dump_hex_stream() {
+  F="$1"; NAME="$2"
+  arm-none-eabi-readelf -x "$NAME" "$F" 2>/dev/null \
+    | awk '
+      /^\s*0x[0-9a-fA-F]+/ {
+        for (i=2; i<=NF; i++) {
+          if ($i ~ /^[0-9a-fA-F]{8}$/) printf "%s", $i;
+        }
+      }
+      END { printf "\n"; }'
+}
+
+get_out_size_hex() {
+  F="$1"; NAME="$2"
+  arm-none-eabi-readelf -S --wide "$F" \
+    | awk -v s="$NAME" '$0 ~ ("[[:space:]]" s "([[:space:]]|$)") {print $6; exit}'
+}
+
+case "$OPTION" in
+  -f)
+    [ -n "$FILEB" ] || fail "Usage: $0 -f <fileA.o> <fileB.o> <out.o>"
+    [ -n "$OUTFILE" ] || fail "Usage: $0 -f <fileA.o> <fileB.o> <out.o>"
+
+    echo "== Autotest ETAPE 6 (Fusion sections, par section) =="
+
+    step "Lancement: ./Options_and_debug_example -f \"$FILEA\" \"$FILEB\" \"$OUTFILE\""
+    ./Options_and_debug_example -f "$FILEA" "$FILEB" "$OUTFILE" || fail "Fusion -f a échoué"
+
+    [ -f "$OUTFILE" ] || fail "Fichier sortie introuvable: $OUTFILE"
+    pass "Sortie créée: $OUTFILE"
+
+    step "Vérification: readelf -S sans Warning"
+    arm-none-eabi-readelf -S --wide "$OUTFILE" 2>&1 | grep -q "Warning:" && fail "readelf -S affiche des warnings"
+    pass "Validation ELF: aucun Warning sur la table des sections"
+
+    step "Extraction sections utiles (sans .debug*, sans .rel*, sans REL/RELA)"
+    liste_sections_utiles "$FILEA" > "$SECA"
+    liste_sections_utiles "$FILEB" > "$SECB"
+    awk '{print $1}' "$SECA" "$SECB" | sort -u > "$SECU"
+    pass "Listes sections A/B extraites + union construite"
+
+    echo
+    echo "== Tests par section (règles étape 6) =="
+
+    while IFS= read -r secname; do
+      [ -n "$secname" ] || continue
+      echo
+      echo "---- Section: $secname ----"
+
+      if [ "$secname" = ".shstrtab" ]; then
+        step "Cas spécial: .shstrtab est reconstruite => on vérifie juste présence"
+        section_existe "$OUTFILE" ".shstrtab" || fail ".shstrtab absente"
+        pass ".shstrtab présente"
+        continue
+      fi
+
+      typeA=$(get_type "$SECA" "$secname")
+      typeB=$(get_type "$SECB" "$secname")
+      sizeA_hex=$(get_size_hex "$SECA" "$secname")
+      sizeB_hex=$(get_size_hex "$SECB" "$secname")
+
+      inA=0; inB=0
+      [ -n "$typeA" ] && inA=1
+      [ -n "$typeB" ] && inB=1
+
+      step "Présence: A=$inA  B=$inB"
+      [ "$inA" -eq 1 ] && step "  A: type=$typeA size=$sizeA_hex"
+      [ "$inB" -eq 1 ] && step "  B: type=$typeB size=$sizeB_hex"
+
+      step "Vérifie que la section existe dans OUT"
+      section_existe "$OUTFILE" "$secname" || fail "Section manquante dans OUT: $secname"
+      pass "Section présente dans OUT"
+
+      out_size_hex=$(get_out_size_hex "$OUTFILE" "$secname")
+      [ -n "$out_size_hex" ] || fail "Impossible de lire la taille OUT pour $secname"
+      out_dec=$(hex_to_dec "$out_size_hex")
+      step "OUT: size=$out_size_hex (dec=$out_dec)"
+
+      # Cas: dans A et dans B
+      if [ "$inA" -eq 1 ] && [ "$inB" -eq 1 ]; then
+        sizeA_dec=$(hex_to_dec "$sizeA_hex")
+        sizeB_dec=$(hex_to_dec "$sizeB_hex")
+
+        # PROGBITS + PROGBITS => concat
+        if [ "$typeA" = "PROGBITS" ] && [ "$typeB" = "PROGBITS" ]; then
+          expect=$((sizeA_dec + sizeB_dec))
+          step "Règle: PROGBITS(A) + PROGBITS(B) => CONCAT (A||B)"
+          step "Attendu: size_out = sizeA+sizeB = $expect"
+          [ "$out_dec" -eq "$expect" ] || fail "$secname: taille OUT != A+B (OUT=$out_size_hex A=$sizeA_hex B=$sizeB_hex)"
+
+          step "Vérifie contenu: hex(OUT) == hex(A) suivi de hex(B)"
+          ha=$(dump_hex_stream "$FILEA" "$secname")
+          hb=$(dump_hex_stream "$FILEB" "$secname")
+          ho=$(dump_hex_stream "$OUTFILE" "$secname")
+          [ "$ho" = "${ha}${hb}" ] || fail "$secname: contenu OUT != concat(A||B)"
+
+          pass "$secname: concat PROGBITS réussi (taille + contenu)"
+          continue
+        fi
+
+        # NOBITS + NOBITS => somme tailles
+        if [ "$typeA" = "NOBITS" ] && [ "$typeB" = "NOBITS" ]; then
+          expect=$((sizeA_dec + sizeB_dec))
+          step "Règle: NOBITS(A) + NOBITS(B) => somme des tailles (pas de contenu)"
+          step "Attendu: size_out = $expect"
+          [ "$out_dec" -eq "$expect" ] || fail "$secname: NOBITS taille OUT != A+B (OUT=$out_size_hex A=$sizeA_hex B=$sizeB_hex)"
+          pass "$secname: somme NOBITS réussie (taille OK)"
+          continue
+        fi
+
+        # Autres types => on garde A (selon ta logique de l'étape 6)
+        expect=$sizeA_dec
+        step "Règle: types non-concaténables à l'étape 6 => OUT doit garder la version A"
+        step "Attendu: size_out = sizeA = $expect"
+        [ "$out_dec" -eq "$expect" ] || fail "$secname: attendu OUT==A (taille) mais OUT=$out_size_hex A=$sizeA_hex"
+
+        if [ "$typeA" = "PROGBITS" ]; then
+          step "Vérifie contenu: OUT == A (PROGBITS)"
+          ha=$(dump_hex_stream "$FILEA" "$secname")
+          ho=$(dump_hex_stream "$OUTFILE" "$secname")
+          [ "$ho" = "$ha" ] || fail "$secname: attendu contenu OUT == contenu A"
+        else
+          step "Pas de vérif contenu (type=$typeA)"
+        fi
+
+        pass "$secname: non-concat => copie A réussie"
+        continue
+      fi
+
+      # Cas: uniquement A
+      if [ "$inA" -eq 1 ] && [ "$inB" -eq 0 ]; then
+        sizeA_dec=$(hex_to_dec "$sizeA_hex")
+        step "Règle: section uniquement dans A => OUT copie A"
+        step "Attendu: size_out = sizeA = $sizeA_dec"
+        [ "$out_dec" -eq "$sizeA_dec" ] || fail "$secname: taille OUT != taille A"
+
+        if [ "$typeA" = "PROGBITS" ]; then
+          step "Vérifie contenu: OUT == A (PROGBITS)"
+          ha=$(dump_hex_stream "$FILEA" "$secname")
+          ho=$(dump_hex_stream "$OUTFILE" "$secname")
+          [ "$ho" = "$ha" ] || fail "$secname: contenu OUT != contenu A"
+        else
+          step "Pas de vérif contenu (type=$typeA)"
+        fi
+
+        pass "$secname: copie A réussie"
+        continue
+      fi
+
+      # Cas: uniquement B
+      if [ "$inA" -eq 0 ] && [ "$inB" -eq 1 ]; then
+        sizeB_dec=$(hex_to_dec "$sizeB_hex")
+        step "Règle: section uniquement dans B => OUT copie B"
+        step "Attendu: size_out = sizeB = $sizeB_dec"
+        [ "$out_dec" -eq "$sizeB_dec" ] || fail "$secname: taille OUT != taille B"
+
+        if [ "$typeB" = "PROGBITS" ]; then
+          step "Vérifie contenu: OUT == B (PROGBITS)"
+          hb=$(dump_hex_stream "$FILEB" "$secname")
+          ho=$(dump_hex_stream "$OUTFILE" "$secname")
+          [ "$ho" = "$hb" ] || fail "$secname: contenu OUT != contenu B"
+        else
+          step "Pas de vérif contenu (type=$typeB)"
+        fi
+
+        pass "$secname: copie B réussie"
+        continue
+      fi
+
+      fail "$secname: état inattendu (ni dans A ni dans B ?)"
+    done < "$SECU"
+
+    echo
+    echo "== Résumé =="
+    echo "✅ PASS total = $PASS_COUNT"
+    echo "✅ OK: tous les tests étape 6 ont passé"
+    ;;
+
+  *)
+    echo "Option inconnue: $OPTION"
+    echo "Options valides: -f"
+    exit 1
+    ;;
+esac

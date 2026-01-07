@@ -126,7 +126,7 @@ void vec_free(VecSec *a)
   a->cap = 0;
 }
 
-/* Ajoute une section au vector. */
+/* Ajoute une section au vecteur. */
 int vec_push(VecSec *a, SecR s)
 {
   if (a->n == a->cap) {
@@ -1052,7 +1052,7 @@ done:
 /***************************************************************************************
  * ****************************************E8 *****************************************************************************
  ***************************************************************************************/
- /*reconstruire les .rel.* en corrigeant (a) l’offset où patcher et (b) l’index du symbole référencé, en utilisant tes mappings de E6 (renum/delta) + E7 (renumSym).*/
+ /*reconstruire les .rel.* en corrigeant  l’offset ou patcher et l’index du symbole référencé, en utilisant les  mappings de E6 (renum/delta) + E7 (renumSym).*/
  /*
     -Lire les sections .rel.* des deux fichiers 
     -Pour tout Elf32_Rel : -corrige r_offset si ca vien de B et qur la section cible a été concaténée
@@ -1124,7 +1124,7 @@ static void free_relaggs(RelAgg *arr, size_t n) {
 
 
 // Fonction parcourt les sections selectionne les SHT_REL et corrige les Elf32_Rel
-// Fonction parcourt les sections, sélectionne les SHT_REL et corrige les Elf32_Rel
+
 static int absorber_relocations(const Elf32_Ehdr *eh,
                                 Shdr_liste *L,
                                 const char *shstr,
@@ -1137,20 +1137,7 @@ static int absorber_relocations(const Elf32_Ehdr *eh,
 
   int file_big = is_big_endian_fich(*eh);
 
-  /*const Elf32_Sym *symtab = NULL;
-  size_t symtab_n = 0;
 
-  for (int si = 1; si < (int)eh->e_shnum; si++) {
-    Shdr_liste *s = section_index(L, si);
-    if (!s) continue;
-    if (s->header.sh_type == SHT_SYMTAB) {
-      size_t entsz = s->header.sh_entsize ? s->header.sh_entsize : sizeof(Elf32_Sym);
-      symtab = (const Elf32_Sym*)s->content;
-      symtab_n = entsz ? (s->header.sh_size / entsz) : 0;
-      break;
-    }
-  }
-*/
   /* Parcourir toutes les sections du fichier */
   for (int i = 1; i < (int)eh->e_shnum; i++) {
     Shdr_liste *sec = section_index(L, i);
@@ -1335,10 +1322,7 @@ int E8_fusionner_corriger_relocations(const char *fileA,
     s.data = (unsigned char*)malloc(s.data_size);
     if (!s.data) { free(s.name); goto done; }
 
-    /* IMPORTANT: contenu en endian de sortie.
-       On veut rester cohérent avec tes autres écritures:
-       ecrire_elf_resultat écrit les sections en brut (pas de swap).
-       Donc on doit stocker dans s.data au format endian fichier final.
+    /* contenu en endian de sortie.
        Si OUT est big-endian, on swap r_offset/r_info avant de copier.
     */
     int out_big = is_big_endian_fich(ehO);
