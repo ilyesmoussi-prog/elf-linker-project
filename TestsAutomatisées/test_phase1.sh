@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ##############################################################################
-# Autotest Phase 1 - Version Complète
+# Autotest Phase 1
 # Teste une option sur tous les fichiers d'un dossier
 # Compare avec readelf en utilisant diff
 ##############################################################################
@@ -54,6 +54,11 @@ while getopts "d:o:a:h" opt; do
     esac
 done
 
+
+##############################################################################
+# Fonction utile
+##############################################################################
+# Normalise la sortie de -x pour ne garder que les champs hex
 normalize_x() {
   awk '
     /^\s*0x[0-9a-f]+/ {
@@ -66,6 +71,46 @@ normalize_x() {
       }
       print out
     }'
+}
+
+# Normalisation relocations côté de notre programme
+# On sort: offset type symbole
+# - accepte offset "0xXXXXXXXX" ou "XXXXXXXX", et force "0xXXXXXXXX"
+normalize_reloc_mine() {
+  awk '
+    # ligne commençant par 0x...
+    /^[[:space:]]*0x[0-9a-fA-F]+/ {
+      off=$1; type=$2; sym=$3;
+      print off, type, sym;
+      next
+    }
+    # ligne commençant par XXXXXXXX (8 hex), on ajoute 0x
+    /^[[:space:]]*[0-9a-fA-F]{8}/ {
+      off="0x"$1; type=$2; sym=$3;
+      print off, type, sym;
+      next
+    }
+  '
+}
+
+# Normalisation relocations côté readelf
+# readelf: Offset  Info  Type  Sym.Value  Sym.Name
+# symbole = floor(Info / 256)  <=> Info >> 8
+# On sort: 0xXXXXXXXX type symbole
+normalize_reloc_readelf() {
+  # Besoin de gawk pour strtonum(). Si indispo, le script stoppera avec un message clair.
+  gawk '
+    /^[[:space:]]*[0-9a-fA-F]{8}/ {
+      off="0x"$1;
+      info_hex=$2;
+      type=$3;
+
+      info = strtonum("0x" info_hex);
+      sym  = int(info / 256);
+
+      print off, type, sym;
+    }
+  '
 }
 
 
@@ -90,17 +135,17 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 if [ ! -x "$PROGRAMME" ]; then
-    echo -e "${RED}❌ Programme introuvable: $PROGRAMME${NC}"
+    echo -e "${RED} Programme introuvable: $PROGRAMME${NC}"
     exit 1
 fi
 
 if [ ! -d "$DOSSIER" ]; then
-    echo -e "${RED}❌ Dossier introuvable: $DOSSIER${NC}"
+    echo -e "${RED} Dossier introuvable: $DOSSIER${NC}"
     exit 1
 fi
 
 if [ "$OPTION" = "-x" ] && [ -z "$ARG_SUPP" ]; then
-    echo -e "${RED}❌ L'option -x nécessite -a (nom de section)${NC}"
+    echo -e "${RED} L'option -x nécessite -a (nom de section)${NC}"
     echo "Exemple: $0 -o -x -a .text"
     exit 1
 fi
@@ -120,7 +165,7 @@ for f in "$DOSSIER"/*.o; do
 done
 
 if [ ${#FICHIERS[@]} -eq 0 ]; then
-    echo -e "${RED}❌ Aucun fichier .o trouvé dans $DOSSIER${NC}"
+    echo -e "${RED} Aucun fichier .o trouvé dans $DOSSIER${NC}"
     exit 1
 fi
 
@@ -137,13 +182,13 @@ ECHECS=0
 for FILE in "${FICHIERS[@]}"; do
     TOTAL=$((TOTAL + 1))
     nom=$(basename "$FILE")
-    
+
     # Fichiers temporaires
     MINE="/tmp/mine_$$.txt"
     READELF_OUT="/tmp/readelf_$$.txt"
-    
+
     printf "%-40s : " "$nom"
-    
+
     ##########################################################################
     # Comparaison selon l'option
     ##########################################################################
@@ -152,7 +197,7 @@ for FILE in "${FICHIERS[@]}"; do
             $PROGRAMME -t "$FILE" | tail -n 19 > "$MINE" 2>/dev/null
             arm-none-eabi-readelf -h "$FILE" | tail -n 19 > "$READELF_OUT" 2>/dev/null
             ;;
-            
+
         -S)
             $PROGRAMME -S "$FILE" \
               | grep -E '^[[:space:]]*\[' \
@@ -163,7 +208,7 @@ for FILE in "${FICHIERS[@]}"; do
               | tr -s ' ' \
               > "$READELF_OUT" 2>/dev/null
             ;;
-            
+
         -s)
             $PROGRAMME -s "$FILE" \
               | grep -E '^[[:space:]]*[0-9]+' \
@@ -174,51 +219,42 @@ for FILE in "${FICHIERS[@]}"; do
               | tr -s ' ' \
               > "$READELF_OUT" 2>/dev/null
             ;;
-            
+
         -x)
             $PROGRAMME -x "$ARG_SUPP" "$FILE" 2>/dev/null | normalize_x > "$MINE"
 
             arm-none-eabi-readelf -x "$ARG_SUPP" "$FILE" 2>/dev/null | normalize_x > "$READELF_OUT"
             ;;
 
-        
+
         -r)
-            $PROGRAMME -r "$FILE" \
-              | grep -E '^\s+[0-9a-f]{8}' \
+             "$PROGRAMME" -r "$FILE" 2>/dev/null \
               | tr -s ' ' \
-              | awk '{print $1, $2, $3}' \
-              | sed 's/\s\+$//' \
-              > "$MINE" 2>/dev/null
-            arm-none-eabi-readelf -r "$FILE" \
-              | grep -E '^\s*[0-9a-f]{8}' \
+              | normalize_reloc_mine \
+              | sed 's/[[:space:]]\+$//' \
+              > "$MINE"
+            arm-none-eabi-readelf -r "$FILE" 2>/dev/null \
               | tr -s ' ' \
-              | awk '{
-                  offset = $1
-                  type = $3
-                  info = $2
-                  sym_hex = substr(info, 1, length(info)-2)
-                  sym_num = strtonum("0x" sym_hex)
-                  print offset, type, sym_num
-              }' \
-              | sed 's/\s\+$//' \
-              > "$READELF_OUT" 2>/dev/null
+              | normalize_reloc_readelf \
+              | sed 's/[[:space:]]\+$//' \
+              > "$READELF_OUT"
             ;;
     esac
-    
+
     ##########################################################################
     # Comparaison avec diff
     ##########################################################################
     if diff -u -w "$READELF_OUT" "$MINE" > /dev/null 2>&1; then
-        echo -e "${GREEN}✅ OK${NC}"
+        echo -e "${GREEN} OK${NC}"
         SUCCES=$((SUCCES + 1))
     else
-        echo -e "${RED}❌ FAIL${NC}"
+        echo -e "${RED} FAIL${NC}"
         ECHECS=$((ECHECS + 1))
-        
+
         # Afficher le diff pour ce fichier (optionnel)
         # diff -u "$READELF_OUT" "$MINE" | head -20
     fi
-    
+
     rm -f "$MINE" "$READELF_OUT"
 done
 
@@ -242,12 +278,12 @@ fi
 echo ""
 
 if [ $ECHECS -eq 0 ]; then
-    echo -e "${GREEN}🎉 Tous les tests ont réussi !${NC}"
+    echo -e "${GREEN} Tous les tests ont réussi !${NC}"
     exit 0
 else
-    echo -e "${RED}⚠️  $ECHECS test(s) ont échoué${NC}"
+    echo -e "${RED}  $ECHECS test(s) ont échoué${NC}"
     echo ""
-    echo -e "${YELLOW}💡 Pour voir les détails d'un fichier :${NC}"
+    echo -e "${YELLOW} Pour voir les détails d'un fichier :${NC}"
     echo "   ./phase1_autotest.sh -o $OPTION <fichier.o>"
     exit 1
 fi

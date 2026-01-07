@@ -1,10 +1,18 @@
 #!/bin/bash
 
-# Test E8 Simplifié (5 tests pertinents)
+# Codes couleur
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Test E8 
 # Usage: ./testE8_simple.sh <fileA.o> <fileB.o> <result.o>
 
 if [ $# -ne 3 ]; then
-    echo "Usage: $0 <fileA.o> <fileB.o> <result.o>"
+    echo -e "${RED}Usage: $0 <fileA.o> <fileB.o> <result.o>${NC}"
     exit 1
 fi
 
@@ -12,12 +20,12 @@ FILEA="$1"
 FILEB="$2"
 RESULT="$3"
 
-echo "=========================================="
-echo "  TEST E8 SIMPLIFIÉ"
-echo "=========================================="
-echo "Fichier A   : $FILEA"
-echo "Fichier B   : $FILEB"
-echo "Résultat    : $RESULT"
+echo -e "${CYAN}==========================================${NC}"
+echo -e "${CYAN}  TEST E8 SIMPLIFIÉ${NC}"
+echo -e "${CYAN}==========================================${NC}"
+echo -e "${BLUE}Fichier A   :${NC} $FILEA"
+echo -e "${BLUE}Fichier B   :${NC} $FILEB"
+echo -e "${BLUE}Résultat    :${NC} $RESULT"
 
 # Fonctions utilitaires (identiques au test complet)
 get_section_size() {
@@ -62,20 +70,20 @@ count_symbols() {
 test_relocation_count() {
     echo ""
     echo "Test 1 : Nombre de relocations"
-    
+
     local nrel_a=$(count_relocations "$FILEA")
     local nrel_b=$(count_relocations "$FILEB")
     local nrel_result=$(count_relocations "$RESULT")
-    
+
     local expected=$((nrel_a + nrel_b))
-    
+
     echo "  A: $nrel_a, B: $nrel_b, Attendu: $expected, Obtenu: $nrel_result"
-    
+
     if [ $nrel_result -eq $expected ]; then
-        echo "  ✅ Nombre correct"
+        echo -e "  ${GREEN}Nombre correct${NC}"
         return 0
     else
-        echo "  ❌ Nombre incorrect"
+        echo -e "  ${RED}Nombre incorrect${NC}"
         return 1
     fi
 }
@@ -84,46 +92,46 @@ test_relocation_count() {
 test_offset_correction() {
     echo ""
     echo "Test 2 : Correction des offsets"
-    
+
     local size_text_a=$(get_section_size "$FILEA" ".text")
-    
+
     if [ -z "$size_text_a" ]; then
-        echo "  ⚠️  Skip (pas de .text)"
+        echo -e "  ${YELLOW}Skip (pas de .text)${NC}"
         return 0
     fi
-    
+
     size_text_a=$((size_text_a))
     echo "  deltaB attendu : 0x$(printf '%x' $size_text_a)"
-    
+
     local first_off_b=$(arm-none-eabi-readelf -r "$FILEB" 2>/dev/null | \
                         awk '/^Relocation section.*\.rel\.text/,/^$/ {print}' | \
                         grep -E '^\s*[0-9a-f]{8}\s' | \
                         head -1 | awk '{print $1}')
-    
+
     if [ -z "$first_off_b" ]; then
-        echo "  ⚠️  Skip (pas de reloc .text dans B)"
+        echo -e "  ${YELLOW}Skip (pas de reloc .text dans B)${NC}"
         return 0
     fi
-    
+
     first_off_b=$((16#$first_off_b))
-    
+
     local last_off_result=$(arm-none-eabi-readelf -r "$RESULT" 2>/dev/null | \
                             awk '/^Relocation section.*\.rel\.text/,/^$/ {print}' | \
                             grep -E '^\s*[0-9a-f]{8}\s' | \
                             tail -1 | awk '{print $1}')
-    
+
     if [ -z "$last_off_result" ]; then
-        echo "  ❌ Pas de relocation dans résultat"
+        echo -e "  ${RED}Pas de relocation dans résultat${NC}"
         return 1
     fi
-    
+
     last_off_result=$((16#$last_off_result))
-    
+
     if [ $last_off_result -gt $size_text_a ]; then
-        echo "  ✅ Offset corrigé (0x$(printf '%x' $last_off_result) > 0x$(printf '%x' $size_text_a))"
+        echo -e "  ${GREEN}Offset corrigé (0x$(printf '%x' $last_off_result) > 0x$(printf '%x' $size_text_a))${NC}"
         return 0
     else
-        echo "  ❌ Offset pas corrigé"
+        echo -e "  ${RED}Offset pas corrigé${NC}"
         return 1
     fi
 }
@@ -132,25 +140,25 @@ test_offset_correction() {
 test_symbol_renumbering() {
     echo ""
     echo "Test 3 : Symboles"
-    
+
     local nsym_a=$(count_symbols "$FILEA")
     local nsym_b=$(count_symbols "$FILEB")
     local nsym_result=$(count_symbols "$RESULT")
-    
+
     local max_sym=$nsym_a
     if [ $nsym_b -gt $max_sym ]; then
         max_sym=$nsym_b
     fi
-    
+
     local min_expected=$((max_sym - 3))
-    
+
     echo "  A: $nsym_a, B: $nsym_b, Résultat: $nsym_result (min: $min_expected)"
-    
+
     if [ $nsym_result -ge $min_expected ]; then
-        echo "  ✅ Cohérent (déduplication OK)"
+        echo -e "  ${GREEN}Cohérent (déduplication OK)${NC}"
         return 0
     else
-        echo "  ❌ Trop de symboles manquants"
+        echo -e "  ${RED}Trop de symboles manquants${NC}"
         return 1
     fi
 }
@@ -159,21 +167,19 @@ test_symbol_renumbering() {
 test_rel_sections() {
     echo ""
     echo "Test 4 : Sections .rel.*"
-    
+
     local nrel_sec=$(arm-none-eabi-readelf -S "$RESULT" 2>/dev/null | grep ".rel\." | wc -l)
-    
+
     echo "  Sections .rel.* : $nrel_sec"
-    
+
     if [ $nrel_sec -ge 1 ]; then
-        echo "  ✅ Présentes"
+        echo -e "  ${GREEN}Présentes${NC}"
         return 0
     else
-        echo "  ❌ Absentes"
+        echo -e "  ${RED}Absentes${NC}"
         return 1
     fi
 }
-
-
 
 # Exécuter tous les tests
 PASS=0
@@ -185,14 +191,14 @@ test_symbol_renumbering && PASS=$((PASS+1))
 test_rel_sections && PASS=$((PASS+1))
 
 echo ""
-echo "=========================================="
+echo -e "${CYAN}==========================================${NC}"
 if [ $PASS -eq $TOTAL ]; then
-    echo "  ✅✅✅ TOUS LES TESTS PASSÉS ! ✅✅✅"
+    echo -e "${GREEN}  TOUS LES TESTS PASSÉS !${NC}"
     echo "  $PASS/$TOTAL tests réussis"
 else
-    echo "  ❌ CERTAINS TESTS ONT ÉCHOUÉ"
+    echo -e "${RED}  CERTAINS TESTS ONT ÉCHOUÉ${NC}"
     echo "  $PASS/$TOTAL tests réussis"
 fi
-echo "=========================================="
+echo -e "${CYAN}==========================================${NC}"
 
 [ $PASS -eq $TOTAL ]

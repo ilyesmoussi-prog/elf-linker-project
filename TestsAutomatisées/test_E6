@@ -1,5 +1,13 @@
 #!/bin/sh
 
+# Codes couleur
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
 OPTION="$1"
 FILEA="$2"
 FILEB="$3"
@@ -17,9 +25,9 @@ SECU="/tmp/sections_union.txt"
 
 PASS_COUNT=0
 
-fail() { echo "❌ FAIL: $*"; exit 1; }
-pass() { echo "✅ PASS: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
-step() { echo "   → $*"; }   # détails intermédiaires (concat, NOBITS, copie A, etc.)
+fail() { echo -e "${RED}FAIL: $*${NC}"; exit 1; }
+pass() { echo -e "${GREEN}PASS: $*${NC}"; PASS_COUNT=$((PASS_COUNT + 1)); }
+step() { echo -e "${BLUE}   → $*${NC}"; }   # détails intermédiaires (concat, NOBITS, copie A, etc.)
 
 liste_sections_utiles() {
   F="$1"
@@ -72,7 +80,7 @@ case "$OPTION" in
     [ -n "$FILEB" ] || fail "Usage: $0 -f <fileA.o> <fileB.o> <out.o>"
     [ -n "$OUTFILE" ] || fail "Usage: $0 -f <fileA.o> <fileB.o> <out.o>"
 
-    echo "== Autotest ETAPE 6 (Fusion sections, par section) =="
+    echo -e "${CYAN}== Autotest ETAPE 6 (Fusion sections, par section) ==${NC}"
 
     step "Lancement: ./Options_and_debug_example -f \"$FILEA\" \"$FILEB\" \"$OUTFILE\""
     ./Options_and_debug_example -f "$FILEA" "$FILEB" "$OUTFILE" || fail "Fusion -f a échoué"
@@ -91,12 +99,12 @@ case "$OPTION" in
     pass "Listes sections A/B extraites + union construite"
 
     echo
-    echo "== Tests par section (règles étape 6) =="
+    echo -e "${CYAN}== Tests par section (règles étape 6) ==${NC}"
 
     while IFS= read -r secname; do
       [ -n "$secname" ] || continue
       echo
-      echo "---- Section: $secname ----"
+      echo -e "${CYAN}---- Section: $secname ----${NC}"
 
       if [ "$secname" = ".shstrtab" ]; then
         step "Cas spécial: .shstrtab est reconstruite => on vérifie juste présence"
@@ -222,9 +230,9 @@ case "$OPTION" in
     done < "$SECU"
 
     echo
-    echo "== Résumé =="
-    echo "✅ PASS total = $PASS_COUNT"
-    echo "✅ OK: tous les tests étape 6 ont passé"
+    echo -e "${CYAN}== Résumé ==${NC}"
+    echo -e "${GREEN}PASS total = $PASS_COUNT${NC}"
+    echo -e "${GREEN}OK: tous les tests étape 6 ont passé${NC}"
     ;;
 
   *)

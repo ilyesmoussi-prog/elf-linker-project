@@ -31,17 +31,17 @@ echo ""
 
 # Vérifications
 if [ ! -f "$FILEA" ]; then
-    echo -e "${RED}❌ Fichier introuvable: $FILEA${NC}"
+    echo -e "${RED} Fichier introuvable: $FILEA${NC}"
     exit 1
 fi
 
 if [ ! -f "$FILEB" ]; then
-    echo -e "${RED}❌ Fichier introuvable: $FILEB${NC}"
+    echo -e "${RED} Fichier introuvable: $FILEB${NC}"
     exit 1
 fi
 
 if [ ! -f "$OUT7" ]; then
-    echo -e "${RED}❌ Fichier introuvable: $OUT7${NC}"
+    echo -e "${RED} Fichier introuvable: $OUT7${NC}"
     echo ""
     echo -e "${YELLOW} créer out7.o avec:${NC}"
     echo "   ./Options_and_debug_example -g $FILEA $FILEB out6.o out7.o"
@@ -59,7 +59,7 @@ echo ""
 echo -e "${CYAN}[1/5] Vérification format ELF...${NC}"
 
 if ! file "$OUT7" | grep -q "ELF"; then
-    echo -e "${RED}❌ $OUT7 n'est pas un fichier ELF${NC}"
+    echo -e "${RED} $OUT7 n'est pas un fichier ELF${NC}"
     exit 1
 fi
 
@@ -93,7 +93,7 @@ min_expected=$((max_sym - 5))
 if [ $nsym_out -ge $min_expected ]; then
     echo -e "${GREEN} Nombre de symboles cohérent${NC}"
 else
-    echo -e "${RED}❌ Trop peu de symboles (min attendu: $min_expected)${NC}"
+    echo -e "${RED} Trop peu de symboles (min attendu: $min_expected)${NC}"
 fi
 
 ##############################################################################
@@ -116,7 +116,7 @@ min_glob=$((expected - 3))
 if [ $nglob_out -ge $min_glob ]; then
     echo -e "${GREEN}✓ Nombre de symboles GLOBAL cohérent (déduplication OK)${NC}"
 else
-    echo -e "${RED}❌ Trop peu de symboles GLOBAL${NC}"
+    echo -e "${RED} Trop peu de symboles GLOBAL${NC}"
 fi
 
 ##############################################################################
@@ -135,20 +135,20 @@ if [ -f "$ref_o" ]; then
         grep " GLOBAL " | \
         grep -vE " __bss_start|__bss_end|_edata|_end|__end__|__data_start|_stack|_start" | \
         awk '{print $2, $8}' | sort > /tmp/ref_sym_$$.txt
-    
+
     arm-none-eabi-readelf -s "$OUT7" 2>/dev/null | \
         sed 's/[[:space:]]\+/ /g' | \
         grep " GLOBAL " | \
         grep -vE " __bss_start|__bss_end|_edata|_end|__end__|__data_start|_stack|_start" | \
         awk '{print $2, $8}' | sort > /tmp/out_sym_$$.txt
-    
+
     if diff -q /tmp/ref_sym_$$.txt /tmp/out_sym_$$.txt > /dev/null 2>&1; then
-        echo -e "${GREEN}✅ Symboles identiques à ld -r${NC}"
+        echo -e "${GREEN} Symboles identiques à ld -r${NC}"
     else
         echo -e "${YELLOW}  Différences avec ld -r :${NC}"
         diff -u /tmp/ref_sym_$$.txt /tmp/out_sym_$$.txt | head -10
     fi
-    
+
     rm -f "$ref_o" /tmp/ref_sym_$$.txt /tmp/out_sym_$$.txt
 else
     echo -e "${YELLOW} Impossible de créer la référence avec ld -r${NC}"
@@ -166,13 +166,13 @@ echo "  Sections dans OUT7  : $nsec"
 if arm-none-eabi-readelf -S "$OUT7" 2>/dev/null | grep -q ".symtab"; then
     echo -e "${GREEN}✓ Section .symtab présente${NC}"
 else
-    echo -e "${RED}❌ Section .symtab absente${NC}"
+    echo -e "${RED} Section .symtab absente${NC}"
 fi
 
 if arm-none-eabi-readelf -S "$OUT7" 2>/dev/null | grep -q ".strtab"; then
     echo -e "${GREEN}✓ Section .strtab présente${NC}"
 else
-    echo -e "${RED}❌ Section .strtab absente${NC}"
+    echo -e "${RED} Section .strtab absente${NC}"
 fi
 
 ##############################################################################
@@ -183,7 +183,7 @@ echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}Résumé${NC}"
 echo -e "${CYAN}========================================${NC}"
 echo ""
-echo -e "${GREEN}✅  fichier out7.o correct !${NC}"
+echo -e "${GREEN}  fichier out7.o correct !${NC}"
 echo ""
 echo -e "${YELLOW}Pour voir tous les symboles :${NC}"
 echo "  arm-none-eabi-readelf -s $OUT7"
