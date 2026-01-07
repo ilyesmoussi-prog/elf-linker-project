@@ -1,0 +1,85 @@
+echo
+echo "=== (4) Comparaison NORMALISÉE out9.o vs ref9.o ==="
+
+# On ignore uniquement ce qui est “hors sujet”:
+# - .debug* (debug)
+# - .note*  (notes)
+# - .comment (commentaires toolchain)
+IGNORE_RE='debug|^\.note|^\.comment$|^\.ARM\.attributes$'
+
+# (T8.1) Sections normalisées: name type size (size = 3e token hex après type)
+# -> robustes même si Flags est vide
+norm_sections() {
+  arm-none-eabi-readelf -SW "$1" | awk -v IGN="$IGNORE_RE" '
+    /^[[:space:]]*\[/{
+      if ($1=="[") { name=$3; type=$4; start=5; }
+      else         { name=$2; type=$3; start=4; }
+
+      # ignorer debug/comment/note/attrs
+      if (name ~ IGN) next;
+
+      # La taille des tables peut légitimement différer => joker "*"
+      if (type=="SYMTAB" || type=="STRTAB" || name==".rodata") {
+        print name, type, "*";
+        next;
+    }
+
+      # sinon on récupère "size" (= 3e champ hex après type)
+      h=0; size="";
+      for (i=start; i<=NF; i++) {
+        if ($i ~ /^[0-9A-Fa-f]+$/) {
+          h++;
+          if (h==3) { size=$i; break; }
+        }
+      }
+      print name, type, size
+    }' | sort
+}
+
+# (T8.2) Symboles normalisés: name type bind ndx size (sans Value)
+# On ignore $a/$t/$d (mapping ARM), et les symbols debug si présents et on compare les globaux seulement
+norm_symbols() {
+  arm-none-eabi-readelf -sW "$1" | awk -v IGN="$IGNORE_RE" '
+    /^ *[0-9]+:/{ name=$8; type=$4; bind=$5; ndx=$7; size=$3;
+      if (name ~ IGN) next;
+      if (name ~ /^\$[atd]$/) next;     # mapping symbols ARM
+      if (bind=="LOCAL") next;          # on ignore les locaux
+      print name, type, bind, ndx, size
+    }' | sort
+}
+
+# (T8.3) Relocs normalisées: section offset type symbol (triées)
+norm_relocs() {
+  arm-none-eabi-readelf -rW "$1" | awk '
+    /Relocation section/{
+      sec=$3; gsub(/\047/,"",sec);
+      # ignorer relocs des sections debug
+      if (sec ~ /debug/) { skip=1 } else { skip=0 }
+      next
+    }
+    /^[0-9A-Fa-f]+/{
+      if (skip) next
+      off=$1; type=$3; sym=$NF;
+      print sec, off, type, sym
+    }' | sort
+}
+
+norm_sections "$OUT9" > S.mine
+norm_sections "$REF9" > S.ref
+diff -u S.ref S.mine >/dev/null || { echo " (T8.1) Diff SECTIONS"; diff -u S.ref S.mine | sed -n '1,160p'; exit 1; }
+pass "(T8.1) Sections identiques (normalisées)"
+
+norm_symbols "$OUT9" > s.mine
+norm_symbols "$REF9" > s.ref
+diff -u s.ref s.mine >/dev/null || { echo " (T8.2) Diff SYMBOLES"; diff -u s.ref s.mine | sed -n '1,220p'; exit 1; }
+pass "(T8.2) Symboles identiques (normalisés)"
+
+norm_relocs "$OUT9" > r.mine
+norm_relocs "$REF9" > r.ref
+diff -u r.ref r.mine >/dev/null || { echo " (T8.3) Diff RELOCATIONS"; diff -u r.ref r.mine | sed -n '1,240p'; exit 1; }
+pass "(T8.3) Relocations identiques (normalisées)"
+
+echo
+pass "TEST ÉTAPE 9 (STRUCTURE out9.o) : PASS TOUT"
+echo "Fichiers: $OUT6 $OUT7 $OUT8 $OUT9 $REF9"
+rm -f S.mine S.ref s.mine s.ref r.mine r.ref
